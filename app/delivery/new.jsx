@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +26,7 @@ export default function NewDelivery({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const { t } = useTranslation();
 
   const handleClose = () => {
     if (onClose) onClose();
@@ -112,19 +114,19 @@ export default function NewDelivery({ onClose }) {
 
   const handleCreateDelivery = async () => {
     if (!fromId) {
-      Alert.alert("Error", "Please select source");
+      Alert.alert(t("delivery.error"), t("delivery.selectSource"));
       return;
     }
     if (!toId) {
-      Alert.alert("Error", "Please select destination");
+      Alert.alert(t("delivery.error"), t("delivery.selectDestination"));
       return;
     }
     if (fromId === toId) {
-      Alert.alert("Error", "Source and destination cannot be the same");
+      Alert.alert(t("delivery.error"), t("delivery.sameSourceDest"));
       return;
     }
     if (cart.length === 0) {
-      Alert.alert("Error", "Please add at least one product");
+      Alert.alert(t("delivery.error"), t("delivery.emptyCart"));
       return;
     }
 
@@ -133,8 +135,8 @@ export default function NewDelivery({ onClose }) {
     );
     if (invalidItems.length > 0) {
       Alert.alert(
-        "Error",
-        `Invalid quantity for: ${invalidItems.map((i) => i.name).join(", ")}`,
+        t("delivery.error"),
+        `${t("delivery.invalidQuantity")} ${invalidItems.map((i) => i.name).join(", ")}`,
       );
       return;
     }
@@ -150,11 +152,10 @@ export default function NewDelivery({ onClose }) {
           productId: item.product?._id || item.product,
           quantity: Number(item.quantity),
         })),
-        note,
       });
 
-      Alert.alert("Success", "Delivery created successfully!", [
-        { text: "OK", onPress: handleClose },
+      Alert.alert(t("delivery.success"), t("delivery.createdSuccess"), [
+        { text: t("delivery.ok"), onPress: handleClose },
       ]);
     } catch (err) {
       Alert.alert("Error", err.message);
@@ -184,15 +185,15 @@ export default function NewDelivery({ onClose }) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleClose}>
-          <Text style={styles.back}>← Back</Text>
+          <Text style={styles.back}>← {t("common.back")}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>New Delivery</Text>
+        <Text style={styles.headerTitle}>{t("delivery.newDelivery")}</Text>
         <View />
       </View>
 
       {/* Step 1 - From */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>1. From</Text>
+        <Text style={styles.sectionTitle,{textTransform: "capitalize"}}>1. {t("common.from")}</Text>
         <View style={styles.row}>
           <TouchableOpacity
             style={[
@@ -212,7 +213,7 @@ export default function NewDelivery({ onClose }) {
                 fromType === "store" && styles.typeTxtActive,
               ]}
             >
-              🏪 Store
+              🏪 {t("stores.store")}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -233,7 +234,7 @@ export default function NewDelivery({ onClose }) {
                 fromType === "warehouse" && styles.typeTxtActive,
               ]}
             >
-              🏭 Warehouse
+              🏭 {t("warehouse.warehouse")}
             </Text>
           </TouchableOpacity>
         </View>
@@ -276,7 +277,7 @@ export default function NewDelivery({ onClose }) {
                 toType === "store" && styles.typeTxtActive,
               ]}
             >
-              🏪 Store
+              🏪 {t("stores.store")}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -295,7 +296,7 @@ export default function NewDelivery({ onClose }) {
                 toType === "warehouse" && styles.typeTxtActive,
               ]}
             >
-              🏭 Warehouse
+              🏭 {t("warehouse.warehouse")}
             </Text>
           </TouchableOpacity>
         </View>
@@ -324,16 +325,17 @@ export default function NewDelivery({ onClose }) {
       {/* Step 3 - Products */}
       {fromId && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>3. Select Products</Text>
+          <Text style={styles.sectionTitle}>3. {t("products.selectProduct")}</Text>
           <TextInput
             style={styles.input}
-            placeholder="Search by name or model..."
+            placeholder={t("products.searchProduct")}
+  placeholderTextColor="#999"
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
           <ScrollView style={{ maxHeight: 300 }} nestedScrollEnabled>
             {displayProducts.length === 0 ? (
-              <Text style={styles.empty}>No products available</Text>
+              <Text style={styles.empty}>{t("products.emptyProduct")}</Text>
             ) : (
               displayProducts.map((item) => {
                 const cartItem = cart.find((c) => c._id === item._id);
@@ -343,7 +345,7 @@ export default function NewDelivery({ onClose }) {
                       <Text style={styles.productName}>{item.name}</Text>
                       <Text style={styles.productModel}>{item.model}</Text>
                       <Text style={styles.productStock}>
-                        Available: {item.quantity}
+                        {t("products.inStock")}: {item.quantity}
                       </Text>
                     </View>
                     {cartItem ? (
@@ -383,7 +385,7 @@ export default function NewDelivery({ onClose }) {
                         style={styles.addBtn}
                         onPress={() => addToCart(item)}
                       >
-                        <Text style={styles.addBtnText}>+ Add</Text>
+                        <Text style={styles.addBtnText}>+ {t("common.add")}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -397,7 +399,7 @@ export default function NewDelivery({ onClose }) {
       {/* Summary */}
       {cart.length > 0 && (
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Summary</Text>
+          <Text style={styles.summaryTitle}>{t("reports.summary")}</Text>
           {cart.map((item) => (
             <View key={item._id} style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>
@@ -407,9 +409,9 @@ export default function NewDelivery({ onClose }) {
             </View>
           ))}
           <View style={[styles.summaryRow, { marginTop: 8 }]}>
-            <Text style={styles.summaryLabel}>Total products</Text>
+            <Text style={styles.summaryLabel}>{t("reports.totalProducts")}</Text>
             <Text style={[styles.summaryValue, { color: Colors.primary }]}>
-              {cart.length} types
+              {cart.length} {t("delivery.types")}
             </Text>
           </View>
         </View>
@@ -426,7 +428,7 @@ export default function NewDelivery({ onClose }) {
             <ActivityIndicator color={Colors.white} />
           ) : (
             <Text style={styles.submitButtonText}>
-              Send Delivery ({cart.length} products)
+              {t("delivery.sendDelivery")}
             </Text>
           )}
         </TouchableOpacity>

@@ -1,5 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -14,10 +15,8 @@ import {
 import PagerView from "react-native-pager-view";
 import QRCode from "react-native-qrcode-svg";
 import Colors from "../../constants/colors";
-import usePermissions from "../../hooks/usePermissions";
 import useRole from "../../hooks/useRole";
 import { del, get, patch, post } from "../../services/api";
-import useAuthStore from "../../store/authStore";
 
 function WarehousePage({ warehouse, isOwner, onDelete }) {
   const [products, setProducts] = useState([]);
@@ -30,6 +29,7 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
   const [selectedProductId, setSelectedProductId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const { t } = useTranslation();
 
   const fetchProducts = () => {
     get(`/warehouses/products/warehouse/${warehouse._id}`)
@@ -76,10 +76,10 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
   };
 
   const handleRemoveWorker = (workerId, workerName) => {
-    Alert.alert("Remove Worker", `Remove ${workerName} from warehouse?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(`${workerName}`, t("workers.removeWorkerConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Remove",
+        text: t("common.remove"),
         style: "destructive",
         onPress: async () => {
           try {
@@ -94,7 +94,10 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
 
   const handleAddProduct = async () => {
     if (!selectedProductId || !quantity) {
-      Alert.alert("Error", "Please select product and enter quantity");
+      Alert.alert(
+        t("common.errorTitle"),
+        t("products.selectProductAndQuantity"),
+      );
       return;
     }
     try {
@@ -113,14 +116,14 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
   };
 
   const handleRemoveProduct = (productId, productName) => {
-    Alert.alert("Remove Product", `Remove ${productName} from warehouse?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(`${productName}`, t("products.deleteProductConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Remove",
+        text: t("common.remove"),
         style: "destructive",
         onPress: async () => {
           try {
-            await del(`/warehouses/products/${productId}`);
+            await del(`/warehouses/product/${productId}`);
             fetchProducts();
           } catch (err) {
             Alert.alert("Error", err.message);
@@ -138,7 +141,7 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
           <Text style={styles.warehouseName}>{warehouse.name}</Text>
           {isOwner && (
             <TouchableOpacity onPress={() => setEditModal(true)}>
-              <Text style={styles.editText}>Edit</Text>
+              <Text style={styles.editText}>{t("common.edit")}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -147,12 +150,12 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
             <Text style={styles.statValue}>
               {warehouse.workers?.length || 0}
             </Text>
-            <Text style={styles.statLabel}>Workers</Text>
+            <Text style={styles.statLabel}>{t("workers.title")}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{products?.length || 0}</Text>
-            <Text style={styles.statLabel}>Products</Text>
+            <Text style={styles.statLabel}>{t("products.title")}</Text>
           </View>
         </View>
       </View>
@@ -169,14 +172,16 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
               })
             }
           >
-            <Text style={styles.actionBtnText}>📦 Delivery History</Text>
+            <Text style={styles.actionBtnText}>
+              📦 {t("delivery.historyTitle")}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: Colors.primary }]}
             onPress={() => router.push("/delivery/new")}
           >
             <Text style={[styles.actionBtnText, { color: Colors.white }]}>
-              📦 New Delivery
+              📦 {t("delivery.newDelivery")}
             </Text>
           </TouchableOpacity>
         </View>
@@ -187,7 +192,7 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              Workers ({warehouse?.workers?.length || 0})
+              {t("workers.title")} ({warehouse?.workers?.length || 0})
             </Text>
             <View style={styles.sectionActions}>
               <TouchableOpacity
@@ -196,20 +201,20 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
                   router.push(`/warehouse/${warehouse._id}/requests`)
                 }
               >
-                <Text style={styles.smallBtnText}>Requests</Text>
+                <Text style={styles.smallBtnText}>{t("workers.requests")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.smallBtn, { backgroundColor: Colors.primary }]}
                 onPress={handleGenerateInvite}
               >
                 <Text style={[styles.smallBtnText, { color: Colors.white }]}>
-                  + Invite
+                  + {t("workers.invite")}
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
           {warehouse?.workers?.length === 0 ? (
-            <Text style={styles.empty}>No workers yet</Text>
+            <Text style={styles.empty}>{t("workers.noWorkers")}</Text>
           ) : (
             warehouse?.workers?.map((worker) => (
               <View key={worker._id} style={styles.workerCard}>
@@ -229,7 +234,7 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
                     )
                   }
                 >
-                  <Text style={styles.removeText}>Remove</Text>
+                  <Text style={styles.removeText}>{t("common.remove")}</Text>
                 </TouchableOpacity>
               </View>
             ))
@@ -240,20 +245,22 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
       {/* Products */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Products ({products.length})</Text>
+          <Text style={styles.sectionTitle}>
+            {t("products.title")} ({products.length})
+          </Text>
           {isOwner && (
             <TouchableOpacity
               style={[styles.smallBtn, { backgroundColor: Colors.primary }]}
               onPress={() => setAddProductModal(true)}
             >
               <Text style={[styles.smallBtnText, { color: Colors.white }]}>
-                + Add
+                + {t("common.add")}
               </Text>
             </TouchableOpacity>
           )}
         </View>
         {products.length === 0 ? (
-          <Text style={styles.empty}>No products yet</Text>
+          <Text style={styles.empty}>{t("products.noProducts")}</Text>
         ) : (
           products.map((item) => (
             <View key={item._id} style={styles.productCard}>
@@ -261,21 +268,23 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
                 <Text style={styles.productName}>{item.name}</Text>
                 <Text style={styles.productModel}>Model: {item.model}</Text>
                 <Text style={styles.productStock}>
-                  Stock: {item.quantity?.toLocaleString()}
+                  {t("products.inStock")}: {item.quantity?.toLocaleString()}
                 </Text>
               </View>
               <View style={styles.productPrices}>
                 <Text style={styles.priceText}>
-                  Bulk: {item.pricing?.bulkPrice?.toLocaleString()}
+                  {t("transactions.bulk")}:{" "}
+                  {item.pricing?.bulkPrice?.toLocaleString()}
                 </Text>
                 <Text style={styles.priceText}>
-                  Retail: {item.pricing?.retailPrice?.toLocaleString()}
+                  {t("transactions.retail")}:{" "}
+                  {item.pricing?.retailPrice?.toLocaleString()}
                 </Text>
                 {isOwner && (
                   <TouchableOpacity
                     onPress={() => handleRemoveProduct(item._id, item.name)}
                   >
-                    <Text style={styles.removeText}>Remove</Text>
+                    <Text style={styles.removeText}>{t("common.remove")}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -290,10 +299,13 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
       <Modal visible={editModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Edit Warehouse</Text>
+            <Text style={styles.modalTitle}>
+              {t("warehouse.editWarehouse")}
+            </Text>
             <TextInput
               style={styles.input}
-              placeholder="Warehouse Name"
+              placeholder={t("warehouse.warehouseName")}
+              placeholderTextColor="#999"
               value={name}
               onChangeText={setName}
             />
@@ -301,13 +313,13 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
               style={styles.button}
               onPress={handleUpdateWarehouse}
             >
-              <Text style={styles.buttonText}>Save</Text>
+              <Text style={styles.buttonText}>{t("common.save")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setEditModal(false)}
             >
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -317,10 +329,8 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
       <Modal visible={inviteModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Invite Worker</Text>
-            <Text style={styles.inviteLabel}>
-              Worker scans this QR code to join:
-            </Text>
+            <Text style={styles.modalTitle}>{t("workers.invite")}</Text>
+            <Text style={styles.inviteLabel}>{t("workers.inviteQR")}:</Text>
             <View style={styles.qrContainer}>
               <QRCode
                 value={inviteToken || "empty"}
@@ -329,12 +339,12 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
                 backgroundColor={Colors.white}
               />
             </View>
-            <Text style={styles.inviteNote}>Token expires after one scan</Text>
+            <Text style={styles.inviteNote}>{t("workers.QRExpires")}</Text>
             <TouchableOpacity
               style={styles.button}
               onPress={() => setInviteModal(false)}
             >
-              <Text style={styles.buttonText}>Done</Text>
+              <Text style={styles.buttonText}>{t("common.done")}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -344,10 +354,13 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
       <Modal visible={addProductModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modal, { maxHeight: "80%" }]}>
-            <Text style={styles.modalTitle}>Add Product to Warehouse</Text>
+            <Text style={styles.modalTitle}>
+              {t("warehouse.addProductToWarehouse")}
+            </Text>
             <TextInput
               style={styles.input}
-              placeholder="Search by name or model..."
+              placeholder={t("products.searchProduct")}
+              placeholderTextColor="#999"
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
@@ -375,19 +388,20 @@ function WarehousePage({ warehouse, isOwner, onDelete }) {
             </ScrollView>
             <TextInput
               style={[styles.input, { marginTop: 12 }]}
-              placeholder="Quantity"
+              placeholder={t("common.quantity")}
+              placeholderTextColor="#999"
               value={quantity}
               onChangeText={setQuantity}
               keyboardType="numeric"
             />
             <TouchableOpacity style={styles.button} onPress={handleAddProduct}>
-              <Text style={styles.buttonText}>Add</Text>
+              <Text style={styles.buttonText}>{t("common.add")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setAddProductModal(false)}
             >
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -402,12 +416,14 @@ export default function Warehouses() {
   const [modalVisible, setModalVisible] = useState(false);
   const [name, setName] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
-  // const { isOwner, role } = useRole();
   const pagerRef = useRef(null);
+
   // Worker's permissions and role separation
   const { isOwner, role } = useRole();
-  const isWorker = role === "worker"
-  const isUser = role === "user"
+  const isWorker = role === "worker";
+  const isUser = role === "user";
+
+  const { t } = useTranslation();
 
   const fetchWarehouses = async () => {
     try {
@@ -415,6 +431,7 @@ export default function Warehouses() {
       if (isWorker) {
         const data = await get("/warehouses/my-warehouse");
         setWarehouses([data.data.warehouse]);
+        return;
       }
       const data = await get("/warehouses");
       setWarehouses(data.data.warehouses);
@@ -427,13 +444,14 @@ export default function Warehouses() {
 
   useFocusEffect(
     useCallback(() => {
+      if (role === null) return;
       fetchWarehouses();
-    }, []),
+    }, [role]),
   );
 
   const handleCreateWarehouse = async () => {
     if (!name) {
-      Alert.alert("Error", "Please enter warehouse name");
+      Alert.alert(t("common.errorTitle"), t("warehouse.invalidName"));
       return;
     }
     try {
@@ -448,12 +466,12 @@ export default function Warehouses() {
 
   const handleDeleteWarehouse = (id, warehouseName) => {
     Alert.alert(
-      "Delete Warehouse",
-      `Are you sure you want to delete ${warehouseName}?`,
+      t("warehouse.deleteWarehouse"),
+      t("warehouse.deleteWarehouseConfirm"),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("common.delete"),
           style: "destructive",
           onPress: async () => {
             try {
@@ -485,13 +503,13 @@ export default function Warehouses() {
         <Text style={styles.headerTitle}>
           {warehouses[currentPage]?.name || "Warehouses"}
         </Text>
-        {isOwner || isUser && (
+        {(isOwner || isUser) && (
           <View style={{ flexDirection: "row", gap: 8 }}>
             <TouchableOpacity
               style={styles.addButton}
               onPress={() => setModalVisible(true)}
             >
-              <Text style={styles.addButtonText}>+ Add</Text>
+              <Text style={styles.addButtonText}>+ {t("common.add")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.addButton, { backgroundColor: Colors.error }]}
@@ -500,7 +518,7 @@ export default function Warehouses() {
                 if (current) handleDeleteWarehouse(current._id, current.name);
               }}
             >
-              <Text style={styles.addButtonText}>Delete</Text>
+              <Text style={styles.addButtonText}>{t("common.delete")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -537,8 +555,8 @@ export default function Warehouses() {
       {warehouses.length === 0 ? (
         <Text style={styles.empty}>
           {true
-            ? "No warehouses yet. Add one!"
-            : "You are not attached to any warehouse yet."}
+            ? `${t("warehouse.noWarehouses")}. ${t("products.addOne")}!`
+            : t("workers.notAttachedToWarehouse")}
         </Text>
       ) : (
         <PagerView
@@ -551,7 +569,7 @@ export default function Warehouses() {
             <View key={warehouse._id}>
               <WarehousePage
                 warehouse={warehouse}
-                isOwner={true}
+                isOwner={isOwner}
                 onDelete={handleDeleteWarehouse}
               />
             </View>
@@ -563,10 +581,13 @@ export default function Warehouses() {
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Create Warehouse</Text>
+            <Text style={styles.modalTitle}>
+              {t("warehouse.createWarehouse")}
+            </Text>
             <TextInput
               style={styles.input}
-              placeholder="Warehouse Name *"
+              placeholder={t("warehouse.warehouseName")}
+              placeholderTextColor="#999"
               value={name}
               onChangeText={setName}
             />
@@ -574,13 +595,13 @@ export default function Warehouses() {
               style={styles.button}
               onPress={handleCreateWarehouse}
             >
-              <Text style={styles.buttonText}>Create</Text>
+              <Text style={styles.buttonText}>{t("common.create")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setModalVisible(false)}
             >
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
           </View>
         </View>

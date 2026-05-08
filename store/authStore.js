@@ -56,31 +56,31 @@ const useAuthStore = create((set) => ({
     await SecureStore.deleteItemAsync("token");
     await SecureStore.deleteItemAsync("user");
     await SecureStore.deleteItemAsync("role");
-    set({ user: null, token: null });
+    set({ user: null, token: null, isLoading: false, error: null }); // clear everything
   },
 
   loadUser: async () => {
     set({ isLoading: true });
     try {
       const token = await SecureStore.getItemAsync("token");
-      if (token) {
-        set({ token });
-        const data = await apiGet("/users/getMe");
-        const freshUser = data.data?.user;
-        await SecureStore.setItemAsync("user", JSON.stringify(freshUser));
-        await SecureStore.setItemAsync("role", freshUser?.role || "user");
-        set({ user: { ...freshUser }, isLoading: false });
-      } else {
+      if (!token) {
         set({ isLoading: false });
+        return;
       }
+      set({ token });
+      const data = await apiGet("/users/getMe");
+      const freshUser = data.data?.user;
+      await SecureStore.setItemAsync("user", JSON.stringify(freshUser));
+      await SecureStore.setItemAsync("role", freshUser?.role || "user");
+      set({ user: freshUser, isLoading: false });
     } catch (err) {
-      console.log("loadUser error:", err);
-      // restore from cache if network fails
-      const userStr = await SecureStore.getItemAsync("user");
-      const cachedUser = userStr ? JSON.parse(userStr) : null;
-      set({ user: cachedUser, token: null, isLoading: false });
+      // token is invalid/expired — clear everything and force login
+      await SecureStore.deleteItemAsync("token");
+      await SecureStore.deleteItemAsync("user");
+      await SecureStore.deleteItemAsync("role");
+      set({ user: null, token: null, isLoading: false });
     }
   },
-}));
+}))
 
 export default useAuthStore;

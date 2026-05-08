@@ -1,19 +1,22 @@
 import { Redirect } from "expo-router";
-import * as SecureStore from "expo-secure-store";
-import { useEffect, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import Colors from "../constants/colors";
+import useAuthStore from "../store/authStore";
 
 export default function Index() {
-  const [isLoggedIn, setIsLoggedIn] = useState(null);
+  const { user, token, isLoading } = useAuthStore();
 
-  useEffect(() => {
-    const checkToken = async () => {
-      const token = await SecureStore.getItemAsync("token");
-      setIsLoggedIn(!!token);
-    };
-    checkToken();
-  }, []);
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
 
-  if (isLoggedIn === null) return null;
-  if (isLoggedIn) return <Redirect href="/(tabs)/reports" />;
+  if (user && token) {
+    return <Redirect href="/(tabs)/reports" />;
+  }
+
   return <Redirect href="/(auth)/login" />;
 }

@@ -7,7 +7,6 @@ export default function useRole() {
   const { loadUser, user } = useAuthStore();
   const [role, setRole] = useState(user?.role || null);
   const isOwner = role === "owner";
-  console.log("full reponse",user, role)
 
   useFocusEffect(
     useCallback(() => {

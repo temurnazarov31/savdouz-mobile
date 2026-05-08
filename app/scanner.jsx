@@ -1,6 +1,7 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Colors from "../constants/colors";
 import { post } from "../services/api";
@@ -9,6 +10,7 @@ export default function Scanner() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   const handleBarCodeScanned = async ({ data }) => {
     if (scanned || loading) return;
@@ -26,14 +28,14 @@ export default function Scanner() {
       await post(endpoint);
 
       Alert.alert(
-        "Success! 🎉",
-        "Join request sent! Waiting for owner approval.",
+        `${t("common.success")}! 🎉 `,
+        `${t("workers.joinRequestSent")} ${t("workers.waitingApproval")}`,
         [{ text: "OK", onPress: () => router.back() }],
       );
     } catch (err) {
-      Alert.alert("Error", err.message, [
-        { text: "Try Again", onPress: () => setScanned(false) },
-        { text: "Cancel", onPress: () => router.back() },
+      Alert.alert(t("common.errorTitle"), err.message, [
+        { text: t("scanner.tryAgain"), onPress: () => setScanned(false) },
+        { text: t("common.cancel"), onPress: () => router.back() },
       ]);
     } finally {
       setLoading(false);
@@ -47,11 +49,9 @@ export default function Scanner() {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.message}>
-          Camera permission is required to scan QR codes
-        </Text>
+        <Text style={styles.message}>{t("scanner.cameraPermission")}</Text>
         <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
+          <Text style={styles.buttonText}>{t("scanner.grantPermission")}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -62,9 +62,9 @@ export default function Scanner() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>← Back</Text>
+          <Text style={styles.back}>← {t("common.back")}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Scan QR Code</Text>
+        <Text style={styles.headerTitle}>{t("scanner.scanQR")}</Text>
         <View />
       </View>
 
@@ -77,6 +77,7 @@ export default function Scanner() {
           barcodeTypes: ["qr", "code128", "code39"],
         }}
         enableTorch={false}
+        tryAgain
       >
         {/* Overlay */}
         <View style={styles.overlay}>
@@ -88,7 +89,7 @@ export default function Scanner() {
             <View style={[styles.corner, styles.bottomRight]} />
           </View>
           <Text style={styles.scanText}>
-            {loading ? "Processing..." : "Point camera at QR code"}
+            {loading ? t("scanner.processing") : t("scanner.pointCamera")}
           </Text>
         </View>
       </CameraView>
@@ -99,7 +100,7 @@ export default function Scanner() {
           style={styles.rescanButton}
           onPress={() => setScanned(false)}
         >
-          <Text style={styles.rescanText}>Tap to Scan Again</Text>
+          <Text style={styles.rescanText}>{t("scanner.tapScan")}</Text>
         </TouchableOpacity>
       )}
     </View>

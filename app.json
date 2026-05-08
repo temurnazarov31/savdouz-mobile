@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "SavdoUzMobile2.0",
+    "name": "SavdoUz",
     "slug": "SavdoUzMobile20",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -43,7 +43,6 @@
       ],
       "expo-secure-store",
       "@react-native-community/datetimepicker",
-      "expo-barcode-scanner",
       "expo-web-browser"
     ],
     "experiments": {

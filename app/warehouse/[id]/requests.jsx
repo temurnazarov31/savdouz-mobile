@@ -11,11 +11,13 @@ import { useState, useEffect } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
 import { get, patch } from '../../../services/api';
 import Colors from '../../../constants/colors';
+import { useTranslation } from 'react-i18next';
 
 export default function WarehouseJoinRequests() {
   const { id } = useLocalSearchParams();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const {t}= useTranslation()
 
   const fetchRequests = async () => {
     try {
@@ -63,9 +65,9 @@ export default function WarehouseJoinRequests() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>← Back</Text>
+          <Text style={styles.back}>← {t("common.back")}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Join Requests</Text>
+        <Text style={styles.headerTitle}>{t("requests.newRequest")}</Text>
         <View />
       </View>
 
@@ -86,19 +88,19 @@ export default function WarehouseJoinRequests() {
                 style={styles.approveButton}
                 onPress={() => handleRequest(item._id, 'approve')}
               >
-                <Text style={styles.approveText}>Approve</Text>
+                <Text style={styles.approveText}>{t("common.approve")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.rejectButton}
                 onPress={() => handleRequest(item._id, 'reject')}
               >
-                <Text style={styles.rejectText}>Reject</Text>
+                <Text style={styles.rejectText}>{t("common.reject")}</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
         ListEmptyComponent={
-          <Text style={styles.empty}>No pending requests</Text>
+          <Text style={styles.empty}>{t("requests.noPending")}</Text>
         }
       />
     </View>

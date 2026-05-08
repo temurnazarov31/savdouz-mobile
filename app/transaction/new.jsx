@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -29,13 +30,13 @@ export default function NewTransaction({ onClose }) {
   const [storesLoading, setStoresLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("naqd");
-  const [scannerVisible, setScannerVisible] = useState(false);;
+  const [scannerVisible, setScannerVisible] = useState(false);
   const [priceType, setPriceType] = useState("retail");
-
   // Permissions
   const { isOwner, role } = useRole();
   const isUser = role === "user";
   const isWorker = role === "worker";
+  const { t } = useTranslation();
 
   const handleClose = () => {
     if (onClose) onClose();
@@ -162,7 +163,7 @@ export default function NewTransaction({ onClose }) {
     if (invalidItems.length > 0) {
       Alert.alert(
         "Error",
-        `Please enter valid quantity for: ${invalidItems.map((i) => i.name).join(", ")}`,
+        `${t("transactions.validQuantity")} ${invalidItems.map((i) => i.name).join(", ")}`,
       );
       return;
     }
@@ -171,11 +172,11 @@ export default function NewTransaction({ onClose }) {
       return;
     }
     if (saleSource === "warehouse" && !selectedWarehouse) {
-      Alert.alert("Error", "Please select a warehouse");
+      Alert.alert("Error", t("transactions.validStore"));
       return;
     }
     if (cart.length === 0) {
-      Alert.alert("Error", "Please add at least one product");
+      Alert.alert("Error", t("transactions.validWarehouse"));
       return;
     }
 
@@ -185,7 +186,6 @@ export default function NewTransaction({ onClose }) {
       const productsToSend = cart.map((item) => ({
         productId: item.product?._id || item.product,
         quantity: item.quantity,
-        priceType: item.priceType,
       }));
 
       await post("/transactions", {
@@ -193,10 +193,11 @@ export default function NewTransaction({ onClose }) {
           saleSource === "store" ? selectedStore._id : selectedWarehouse._id,
         products: productsToSend,
         saleSource,
+        priceType,
         paymentMethod,
       });
 
-      Alert.alert("Success", "Sale recorded successfully!", [
+      Alert.alert(t("common.success"), t("transactions.saleRecorded"), [
         { text: "OK", onPress: handleClose },
       ]);
     } catch (err) {
@@ -227,16 +228,20 @@ export default function NewTransaction({ onClose }) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleClose}>
-          <Text style={styles.back}>← Back</Text>
+          <Text style={styles.back}>← {t("common.back")}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>New Sale</Text>
+        <Text style={styles.headerTitle}>
+          {t("transactions.newTransaction")}
+        </Text>
         <View />
       </View>
 
       {/* Step 1 - Sale Source */}
       {isOwner && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sale From</Text>
+          <Text style={styles.sectionTitle}>
+            {t("transactions.saleSource")}
+          </Text>
           <View style={styles.row}>
             <TouchableOpacity
               style={[
@@ -255,7 +260,7 @@ export default function NewTransaction({ onClose }) {
                   saleSource === "store" && styles.sourceTextActive,
                 ]}
               >
-                🏪 Store
+                🏪 {t("stores.store")}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -275,7 +280,7 @@ export default function NewTransaction({ onClose }) {
                   saleSource === "warehouse" && styles.sourceTextActive,
                 ]}
               >
-                🏭 Warehouse
+                🏪 {t("warehouse.warehouse")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -286,7 +291,10 @@ export default function NewTransaction({ onClose }) {
       {isOwner && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            Select {saleSource === "store" ? "Store" : "Warehouse"}
+            {" "}
+            {saleSource === "store"
+              ? t("stores.selectStore")
+              : t("warehouse.selectWarehouse")}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {(saleSource === "store" ? stores : warehouses).map((item) => (
@@ -321,11 +329,12 @@ export default function NewTransaction({ onClose }) {
       {/* Step 3 - Select Products & Quantity */}
       {(selectedStore || selectedWarehouse) && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Add Products</Text>
+          <Text style={styles.sectionTitle}>{t("products.addProduct")}</Text>
           <View style={styles.searchRow}>
             <TextInput
               style={styles.input}
-              placeholder="Search product..."
+              placeholder={t("common.searchProduct")}
+  placeholderTextColor="#999"
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
@@ -338,7 +347,7 @@ export default function NewTransaction({ onClose }) {
           </View>
           <ScrollView style={{ maxHeight: 400 }} nestedScrollEnabled>
             {displayProducts.length === 0 ? (
-              <Text style={styles.empty}>No products available</Text>
+              <Text style={styles.empty}>{t("products.emptyProduct")}</Text>
             ) : (
               displayProducts.map((item) => {
                 const cartItem = cart.find((c) => c._id === item._id);
@@ -351,17 +360,19 @@ export default function NewTransaction({ onClose }) {
                         Model: {item.model}
                       </Text>
                       <Text style={styles.productStock}>
-                        Stock: {item.quantity}
+                        {t("products.inStock")}: {item.quantity}
                       </Text>
                     </View>
 
                     {/* Right - actions */}
                     <View style={{ alignItems: "flex-end" }}>
                       <Text style={styles.priceText}>
-                        B: {item.pricing?.bulkPrice?.toLocaleString()}
+                        {t("products.bulkFirstLetter")}:{" "}
+                        {item.pricing?.bulkPrice?.toLocaleString()}
                       </Text>
                       <Text style={styles.priceText}>
-                        R: {item.pricing?.retailPrice?.toLocaleString()}
+                        {t("products.retailFirstLetter")}:{" "}
+                        {item.pricing?.retailPrice?.toLocaleString()}
                       </Text>
                       {cartItem ? (
                         <>
@@ -404,7 +415,9 @@ export default function NewTransaction({ onClose }) {
                             style={styles.addBtn}
                             onPress={() => addToCart(item)}
                           >
-                            <Text style={styles.addBtnText}>+ Add</Text>
+                            <Text style={styles.addBtnText}>
+                              + {t("common.add")}
+                            </Text>
                           </TouchableOpacity>
                         </>
                       )}
@@ -419,7 +432,7 @@ export default function NewTransaction({ onClose }) {
 
       {cart.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Price Type</Text>
+          <Text style={styles.sectionTitle}>{t("transactions.priceType")}</Text>
           <View style={styles.row}>
             <TouchableOpacity
               style={[
@@ -434,7 +447,7 @@ export default function NewTransaction({ onClose }) {
                   priceType === "bulk" && styles.sourceTextActive,
                 ]}
               >
-                Bulk
+                {t("transactions.bulk")}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -450,7 +463,7 @@ export default function NewTransaction({ onClose }) {
                   priceType === "retail" && styles.sourceTextActive,
                 ]}
               >
-                Retail
+                {t("transactions.retail")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -460,7 +473,9 @@ export default function NewTransaction({ onClose }) {
       {/* Payment Method */}
       {cart.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Payment Method</Text>
+          <Text style={styles.sectionTitle}>
+            {t("transactions.paymentMethod")}
+          </Text>
           <View style={styles.row}>
             <TouchableOpacity
               style={[
@@ -475,7 +490,8 @@ export default function NewTransaction({ onClose }) {
                   paymentMethod === "naqd" && styles.sourceTextActive,
                 ]}
               >
-                💵 Naqd
+                {t("transactions.cash")}
+                💵
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -491,7 +507,7 @@ export default function NewTransaction({ onClose }) {
                   paymentMethod === "karta" && styles.sourceTextActive,
                 ]}
               >
-                💳 Karta
+                {t("transactions.card")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -501,7 +517,7 @@ export default function NewTransaction({ onClose }) {
       {/* Summary */}
       {cart.length > 0 && (
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Summary</Text>
+          <Text style={styles.summaryTitle}>{t("reports.summary")} | {priceType === "bulk" ? t("transactions.bulk") : t("transactions.retail")} | {paymentMethod === "naqd" ? t("transactions.cash") : t("transactions.card")}</Text>
 
           {/* Items List */}
           {cart.map((item) => {
@@ -516,8 +532,7 @@ export default function NewTransaction({ onClose }) {
                     {item.name} - {item.model}
                   </Text>
                   <Text style={styles.summaryItemDetail}>
-                    {item.quantity} x {price?.toLocaleString()} (
-                    {item.priceType})
+                    {item.quantity} x {price?.toLocaleString()}
                   </Text>
                 </View>
                 <Text style={styles.summaryItemTotal}>
@@ -551,35 +566,32 @@ export default function NewTransaction({ onClose }) {
             <ActivityIndicator color={Colors.white} />
           ) : (
             <Text style={styles.submitButtonText}>
-              Record Sale ({cart.length} items)
+              {t("transactions.recordSale")}
             </Text>
           )}
         </TouchableOpacity>
       )}
 
-      {isUser && <Text style={styles.empty}>Create a store to transact</Text>}
+      {isUser && <Text style={styles.empty}>{t("transactions.isUser")}</Text>}
 
       <View style={{ height: 40 }} />
 
       <Modal visible={scannerVisible} animationType="slide">
         <ProductScanner
           products={displayProducts}
+          priceType={priceType}
           onAddToCart={(item) => {
             const existing = cart.find((c) => c._id === item._id);
             if (existing) {
               setCart(
                 cart.map((c) =>
                   c._id === item._id
-                    ? {
-                        ...c,
-                        quantity: c.quantity + item.quantity,
-                        priceType: item.priceType,
-                      }
+                    ? { ...c, quantity: c.quantity + item.quantity }
                     : c,
                 ),
               );
             } else {
-              setCart([...cart, item]);
+              setCart([...cart, { ...item, quantity: item.quantity || 1 }]);
             }
           }}
           onClose={() => setScannerVisible(false)}

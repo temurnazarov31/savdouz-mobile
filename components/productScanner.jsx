@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Alert,
   Modal,
@@ -11,23 +12,24 @@ import {
 } from "react-native";
 import Colors from "../constants/colors";
 
-export default function ProductScanner({ products, onAddToCart, onClose }) {
+export default function ProductScanner({
+  products,
+  onAddToCart,
+  onClose,
+  priceType,
+}) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [scannedProduct, setScannedProduct] = useState(null);
   const [quantity, setQuantity] = useState("1");
-  const [priceType, setPriceType] = useState("retail");
   const [modalVisible, setModalVisible] = useState(false);
+  const { t } = useTranslation();
 
   const handleBarCodeScanned = ({ data }) => {
-    console.log("scanned state:", scanned);
-    console.log("onBarcodeScanned:", scanned ? "disabled" : "enabled");
-    console.log("scanned data:", data);
 
     if (scanned) return;
     setScanned(true);
 
-    console.log("scanned data:", data);
     // Find product by _id or product field
     const product = products.find(
       (p) =>
@@ -37,19 +39,17 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
         p.barcode === data || // ← add this
         p.product?.barcode === data, // ← and this
     );
-    console.log("first product:", JSON.stringify(products[0]));
-
+    
     if (!product) {
-      Alert.alert("Not Found", "Product not found in this store.", [
-        { text: "Scan Again", onPress: () => setScanned(false) },
-        { text: "Close", onPress: onClose },
+      Alert.alert(t("common.notFound"), t("products.productNotFound"), [
+        { text: t("common.close"), onPress: onClose },
+        { text: t("scanner.scanAgain"), onPress: () => setScanned(false) },
       ]);
       return;
     }
 
     setScannedProduct(product);
     setQuantity("1");
-    setPriceType("retail");
     setModalVisible(true);
   };
 
@@ -57,10 +57,10 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
     if (!scannedProduct) return;
     const qty = Number(quantity);
     if (!qty || qty < 1) {
-      Alert.alert("Error", "Please enter a valid quantity");
+      Alert.alert("Error", t("transactions.validQuantity"));
       return;
     }
-    onAddToCart({ ...scannedProduct, quantity: qty, priceType });
+    onAddToCart({ ...scannedProduct, quantity: qty });
     setModalVisible(false);
     setScannedProduct(null);
     setQuantity("1");
@@ -78,9 +78,9 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.message}>Camera permission is required</Text>
+        <Text style={styles.message}>{t("scanner.cameraPermission")}</Text>
         <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
+          <Text style={styles.buttonText}>{t("scanner.grantPermission")}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -90,9 +90,9 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Scan Product</Text>
+        <Text style={styles.headerTitle}>{t("scanner.productTitle")}</Text>
         <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-          <Text style={styles.closeBtnText}>✕ Close</Text>
+          <Text style={styles.closeBtnText}>✕ {t("common.back")}</Text>
         </TouchableOpacity>
       </View>
 
@@ -120,7 +120,7 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
             <View style={[styles.corner, styles.bottomLeft]} />
             <View style={[styles.corner, styles.bottomRight]} />
           </View>
-          <Text style={styles.scanText}>Point camera at product QR code</Text>
+          <Text style={styles.scanText}>{t("scanner.pointCamera")}</Text>
         </View>
       </CameraView>
 
@@ -130,48 +130,24 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>{scannedProduct?.name}</Text>
             <Text style={styles.modalSubtitle}>
-              {scannedProduct?.model} • Stock: {scannedProduct?.quantity}
+              {scannedProduct?.model} • {t("products.inStock")}:{" "}
+              {scannedProduct?.quantity}
             </Text>
 
-            {/* Price Type */}
+            {/* Price Info */}
             <View style={styles.priceToggle}>
-              <TouchableOpacity
-                style={[
-                  styles.toggleBtn,
-                  priceType === "bulk" && styles.toggleBtnActive,
-                ]}
-                onPress={() => setPriceType("bulk")}
-              >
-                <Text
-                  style={[
-                    styles.toggleTxt,
-                    priceType === "bulk" && styles.toggleTxtActive,
-                  ]}
-                >
-                  Bulk: {scannedProduct?.pricing?.bulkPrice?.toLocaleString()}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.toggleBtn,
-                  priceType === "retail" && styles.toggleBtnActive,
-                ]}
-                onPress={() => setPriceType("retail")}
-              >
-                <Text
-                  style={[
-                    styles.toggleTxt,
-                    priceType === "retail" && styles.toggleTxtActive,
-                  ]}
-                >
-                  Retail:{" "}
-                  {scannedProduct?.pricing?.retailPrice?.toLocaleString()}
-                </Text>
-              </TouchableOpacity>
+              <Text style={styles.toggleTxt}>
+                {t("transactions.bulk")}:{" "}
+                {scannedProduct?.pricing?.bulkPrice?.toLocaleString()} UZS
+              </Text>
+              <Text style={styles.toggleTxt}>
+                {t("transactions.retail")}:{" "}
+                {scannedProduct?.pricing?.retailPrice?.toLocaleString()} UZS
+              </Text>
             </View>
 
             {/* Quantity */}
-            <Text style={styles.label}>Quantity</Text>
+            <Text style={styles.label}>{t("common.quantity")}</Text>
             <View style={styles.qtyControls}>
               <TouchableOpacity
                 style={styles.qtyBtn}
@@ -195,13 +171,15 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
               </TouchableOpacity>
             </View>
 
-            {/* Total */}
             <Text style={styles.total}>
-              Total:{" "}
+              {t("transactions.bulk")} -{" "}
               {(
-                (priceType === "bulk"
-                  ? scannedProduct?.pricing?.bulkPrice
-                  : scannedProduct?.pricing?.retailPrice) * Number(quantity)
+                scannedProduct?.pricing?.bulkPrice * Number(quantity)
+              )?.toLocaleString()}{" "}
+              UZS{"     "}
+              {t("transactions.retail")} -{" "}
+              {(
+                scannedProduct?.pricing?.retailPrice * Number(quantity)
               )?.toLocaleString()}{" "}
               UZS
             </Text>
@@ -212,13 +190,13 @@ export default function ProductScanner({ products, onAddToCart, onClose }) {
                 style={styles.cancelButton}
                 onPress={handleCancel}
               >
-                <Text style={styles.cancelText}>Skip</Text>
+                <Text style={styles.cancelText}>{t("common.skip")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.approveButton}
                 onPress={handleApprove}
               >
-                <Text style={styles.approveText}>✓ Add to Cart</Text>
+                <Text style={styles.approveText}>✓ {t("scanner.addCart")}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -316,11 +294,16 @@ const styles = StyleSheet.create({
   },
   priceToggle: {
     flexDirection: "row",
+    justifyContent: "space-around",
+    backgroundColor: Colors.background,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: "hidden",
+    padding: 12,
     marginBottom: 8,
+  },
+  toggleTxt: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.black,
   },
   toggleBtn: {
     flex: 1,
@@ -329,7 +312,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   toggleBtnActive: { backgroundColor: Colors.primary },
-  toggleTxt: { fontSize: 13, fontWeight: "600", color: Colors.text },
   toggleTxtActive: { color: Colors.white },
   qtyControls: {
     flexDirection: "row",

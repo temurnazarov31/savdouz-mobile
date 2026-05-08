@@ -1,5 +1,7 @@
-import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -37,6 +39,8 @@ export default function Reports() {
 
   // Worker's permissions and role separation
   const { isOwner, role } = useRole();
+
+  const { t } = useTranslation();
 
   const fetchOutlets = async () => {
     try {
@@ -132,22 +136,29 @@ export default function Reports() {
         <NewSale onClose={() => setSaleModalVisible(false)} />
       </Modal>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Sales</Text>
+        <View style={styles.headerTop}>
+          <Text style={styles.headerTitle}>{t("reports.title")}</Text>
+          <TouchableOpacity
+            style={styles.historyBtn}
+            onPress={() => router.push("transaction/history")}
+          >
+            <Ionicons name="time-outline" size={24} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity
           style={styles.newSaleButton}
-          onPress={() => {
-            console.log("Navigating to new sale");
-            setSaleModalVisible(true);
-          }}
+          onPress={() => setSaleModalVisible(true)}
         >
-          <Text style={styles.newSaleButtonText}>+ New Sale</Text>
+          <Text style={styles.newSaleButtonText}>
+            {t("reports.transaction")}
+          </Text>
         </TouchableOpacity>
       </View>
 
       {/* Selector — Stores & Warehouses */}
       {isOwner && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Select Outlet</Text>
+          <Text style={styles.sectionTitle}>{t("reports.store")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {/* Stores */}
             {stores.map((store) => (
@@ -202,17 +213,21 @@ export default function Reports() {
           {/* 7 Day Summary */}
           {isOwner && (
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Last 7 Days</Text>
+              <Text style={styles.summaryTitle}>{t("reports.weekly")}</Text>
               <View style={styles.summaryRow}>
                 <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Total Income</Text>
+                  <Text style={styles.summaryLabel}>
+                    {t("reports.totalSales")}
+                  </Text>
                   <Text style={styles.summaryValue}>
                     {formatPrice(summary?.totalIncome) || 0}
                   </Text>
                 </View>
                 {isOwner && (
                   <View style={styles.summaryItem}>
-                    <Text style={styles.summaryLabel}>Total Profit</Text>
+                    <Text style={styles.summaryLabel}>
+                      {t("reports.totalRevenue")}
+                    </Text>
                     <Text
                       style={[styles.summaryValue, { color: Colors.success }]}
                     >
@@ -221,7 +236,9 @@ export default function Reports() {
                   </View>
                 )}
                 <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Transactions</Text>
+                  <Text style={styles.summaryLabel}>
+                    {t("reports.salesCount")}
+                  </Text>
                   <Text style={styles.summaryValue}>
                     {summary?.totalTransactions || 0}
                   </Text>
@@ -231,22 +248,26 @@ export default function Reports() {
           )}
           {/* Today's Report */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Today</Text>
+            <Text style={styles.sectionTitle}>{t("reports.today")}</Text>
 
             {report?.totalTransactions === 0 || !report?.transactions ? (
-              <Text style={styles.empty}>No transactions today</Text>
+              <Text style={styles.empty}>
+                {t("transactions.noSales")}
+              </Text>
             ) : (
               <>
                 <View style={styles.todayStats}>
                   <View style={styles.statItem}>
-                    <Text style={styles.statLabel}>Income</Text>
+                    <Text style={styles.statLabel}>{t("reports.income")}</Text>
                     <Text style={styles.statValue}>
                       {formatPrice(report?.totalIncome) || 0}
                     </Text>
                   </View>
                   {isOwner && (
                     <View style={styles.statItem}>
-                      <Text style={styles.statLabel}>Profit</Text>
+                      <Text style={styles.statLabel}>
+                        {t("reports.profit")}
+                      </Text>
                       <Text
                         style={[styles.statValue, { color: Colors.success }]}
                       >
@@ -255,7 +276,9 @@ export default function Reports() {
                     </View>
                   )}
                   <View style={styles.statItem}>
-                    <Text style={styles.statLabel}>Sales</Text>
+                    <Text style={styles.statLabel}>
+                      {t("reports.salesCount")}
+                    </Text>
                     <Text style={styles.statValue}>
                       {report?.totalTransactions || 0}
                     </Text>
@@ -263,7 +286,7 @@ export default function Reports() {
                 </View>
 
                 {/* Transaction List */}
-                {report?.transactions?.map((t, index) => (
+                {report?.transactions?.map((transaction, index) => (
                   <TouchableOpacity
                     key={index}
                     style={styles.transactionCard}
@@ -276,23 +299,32 @@ export default function Reports() {
                     {/* Row 1 - Time & Products Count */}
                     <View style={styles.transactionHeader}>
                       <Text style={styles.transactionProduct}>
-                        {t.products?.length} product
-                        {t.products?.length > 1 ? "s" : ""}
+                        {transaction.products?.length} {t("reports.product")}
+                        {transaction.products?.length > 1 ? t("common.plural") : ""}
                       </Text>
                       <Text style={styles.transactionTime}>
-                        {new Date(t.createdAt).toLocaleTimeString("uz-UZ", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          timeZone: "Asia/Tashkent",
-                        })}
+                        {new Date(transaction.createdAt).toLocaleTimeString(
+                          "uz-UZ",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            timeZone: "Asia/Tashkent",
+                          },
+                        )}
                       </Text>
                     </View>
 
                     {/* Row 2 - Total Quantity & Total Amount */}
                     <View style={styles.transactionDetails}>
                       <Text style={styles.transactionDetail}>
-                        Total qty: {t.totalQuantity} •{" "}
-                        {t.paymentMethod === "naqd" ? "Naqd" : "Karta"}
+                        {t("common.quantity")} - {transaction.totalQuantity} |{" "}
+                        {transaction.paymentMethod === "naqd"
+                          ? t("transactions.cash")
+                          : t("transactions.card")}{" "}
+                        |{" "}
+                        {transaction.priceType === "bulk"
+                          ? t("transactions.bulk")
+                          : t("transactions.retail")}
                       </Text>
                       <Text
                         style={[
@@ -300,14 +332,14 @@ export default function Reports() {
                           { color: Colors.primary },
                         ]}
                       >
-                        {t.totalAmount?.toLocaleString()} UZS
+                        {transaction.totalAmount?.toLocaleString()} UZS
                       </Text>
                     </View>
 
                     {/* Row 3 - Profit */}
                     <View style={styles.transactionDetails}>
                       <Text style={styles.transactionDetail}>
-                        {t.soldBy?.name}
+                        {transaction.soldBy?.name}
                       </Text>
                       {isOwner && (
                         <Text
@@ -316,7 +348,7 @@ export default function Reports() {
                             { color: Colors.success },
                           ]}
                         >
-                          +{t.totalProfit?.toLocaleString()} UZS
+                          +{transaction.totalProfit?.toLocaleString()} UZS
                         </Text>
                       )}
                     </View>
@@ -324,7 +356,7 @@ export default function Reports() {
                     {/* Expanded - Show all products */}
                     {expandedTransaction === index && (
                       <View style={styles.expandedProducts}>
-                        {t.products?.map((p, i) => (
+                        {transaction.products?.map((p, i) => (
                           <View key={i} style={styles.expandedProduct}>
                             {/* Row 1 - Name */}
                             <View style={styles.transactionHeader}>
@@ -357,8 +389,7 @@ export default function Reports() {
                             {/* Row 3 - Quantity & Price Type */}
                             <View style={styles.transactionDetails}>
                               <Text style={styles.transactionDetail}>
-                                {p.quantity} x {p.priceAtSale?.toLocaleString()}{" "}
-                                ({p.priceType})
+                                {p.quantity} x {p.priceAtSale?.toLocaleString()}
                               </Text>
                             </View>
                           </View>
@@ -373,7 +404,7 @@ export default function Reports() {
         </>
       )}
       {!selectedStore && !loading && (
-        <Text style={styles.empty}>No reports yet</Text>
+        <Text style={styles.empty}>{t("transactions.noSales")}</Text>
       )}
     </ScrollView>
   );
@@ -552,5 +583,14 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
     marginTop: 40,
     fontSize: 16,
+  },
+  headerTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  historyBtn: {
+    padding: 8,
   },
 });

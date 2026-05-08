@@ -1,8 +1,8 @@
 import { CameraView } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
-import * as SecureStore from "expo-secure-store";
 import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -49,16 +49,13 @@ export default function Products() {
 
   // Worker's permissions and role separation
   const { isOwner, role } = useRole();
-  console.log(role);
   const isUser = role === "user";
+  const { t } = useTranslation();
 
   const filteredProducts = products.filter(
     (p) =>
       p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.model?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-  SecureStore.getItemAsync("token").then((t) =>
-    console.log("stored token:", t),
   );
 
   const fetchProducts = async () => {
@@ -104,21 +101,25 @@ export default function Products() {
   };
 
   const handleDeleteProduct = (id) => {
-    Alert.alert("Delete Product", "Are you sure?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await del(`/products/${id}`);
-            setProducts((prev) => prev.filter((p) => p._id !== id));
-          } catch (err) {
-            Alert.alert("Error", err.message);
-          }
+    Alert.alert(
+      t("products.deleteProduct"),
+      t("products.deleteProductConfirm"),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("common.delete"),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await del(`/products/${id}`);
+              setProducts((prev) => prev.filter((p) => p._id !== id));
+            } catch (err) {
+              Alert.alert("Error", err.message);
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const handleOpenUpdate = (product) => {
@@ -175,7 +176,7 @@ export default function Products() {
   const handleExportSinglePDF = async (product) => {
     try {
       if (!product?._id) {
-        Alert.alert("Error", "No product selected");
+        Alert.alert("Error", t("products.notSelected"));
         return;
       }
       const fileUri =
@@ -212,10 +213,10 @@ export default function Products() {
           {(isOwner || isUser) && (
             <View style={styles.cardActions}>
               <TouchableOpacity onPress={() => handleOpenUpdate(item)}>
-                <Text style={styles.editText}>Edit</Text>
+                <Text style={styles.editText}>{t("common.edit")}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => handleDeleteProduct(item._id)}>
-                <Text style={styles.deleteText}>Delete</Text>
+                <Text style={styles.deleteText}>{t("common.delete")}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -223,19 +224,19 @@ export default function Products() {
       </View>
       <View style={styles.pricing}>
         <View style={styles.priceItem}>
-          <Text style={styles.priceLabel}>Initial</Text>
+          <Text style={styles.priceLabel}>{t("products.initialPrice")}</Text>
           <Text style={styles.priceValue}>
             {item.pricing?.initialPrice.toLocaleString()} UZS
           </Text>
         </View>
         <View style={styles.priceItem}>
-          <Text style={styles.priceLabel}>Bulk</Text>
+          <Text style={styles.priceLabel}>{t("transactions.bulk")}</Text>
           <Text style={styles.priceValue}>
             {item.pricing?.bulkPrice.toLocaleString()} UZS
           </Text>
         </View>
         <View style={styles.priceItem}>
-          <Text style={styles.priceLabel}>Retail</Text>
+          <Text style={styles.priceLabel}>{t("transactions.retail")}</Text>
           <Text style={styles.priceValue}>
             {item.pricing?.retailPrice.toLocaleString()} UZS
           </Text>
@@ -247,10 +248,10 @@ export default function Products() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Products</Text>
+        <Text style={styles.headerTitle}>{t("products.title")}</Text>
         <TouchableOpacity onPress={handleExportPDF}>
           <Text style={{ color: Colors.primary, fontWeight: "600" }}>
-            Export PDF
+            {t("products.exportPDF")}
           </Text>
         </TouchableOpacity>
       </View>
@@ -258,7 +259,8 @@ export default function Products() {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search by name or model..."
+          placeholder={t("products.searchProduct")}
+          placeholderTextColor="#999"
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
@@ -277,7 +279,9 @@ export default function Products() {
           renderItem={renderProduct}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.empty}>No products yet. Add one!</Text>
+            <Text style={styles.empty}>
+              {t("products.emptyProduct")}. {t("products.addOne")}!
+            </Text>
           }
           refreshing={loading}
           onRefresh={fetchProducts}
@@ -289,7 +293,7 @@ export default function Products() {
           style={styles.fab}
           onPress={() => setModalVisible(true)}
         >
-          <Text style={styles.fabText}>+ Add Product</Text>
+          <Text style={styles.fabText}>+ {t("products.addProduct")}</Text>
         </TouchableOpacity>
       )}
 
@@ -297,37 +301,44 @@ export default function Products() {
         <View style={styles.modalOverlay}>
           <ScrollView>
             <View style={styles.modal}>
-              <Text style={styles.modalTitle}>Update Product</Text>
+              <Text style={styles.modalTitle}>
+                {t("products.updateProduct")}
+              </Text>
 
               <TextInput
                 style={styles.input}
-                placeholder="Product Name"
+                placeholder={t("products.productName")}
+                placeholderTextColor="#999"
                 value={updateName}
                 onChangeText={setUpdateName}
               />
               <TextInput
                 style={styles.input}
-                placeholder="Model"
+                placeholder={t("products.productModel")}
+                placeholderTextColor="#999"
                 value={updateModel}
                 onChangeText={setUpdateModel}
               />
               <TextInput
                 style={styles.input}
-                placeholder="Initial Price"
+                placeholder={t("products.initialPrice")}
+                placeholderTextColor="#999"
                 value={updateInitialPrice}
                 onChangeText={setUpdateInitialPrice}
                 keyboardType="numeric"
               />
               <TextInput
                 style={styles.input}
-                placeholder="Bulk Price"
+                placeholder={t("products.bulkPrice")}
+                placeholderTextColor="#999"
                 value={updateBulkPrice}
                 onChangeText={setUpdateBulkPrice}
                 keyboardType="numeric"
               />
               <TextInput
                 style={styles.input}
-                placeholder="Retail Price"
+                placeholder={t("products.retailPrice")}
+                placeholderTextColor="#999"
                 value={updateRetailPrice}
                 onChangeText={setUpdateRetailPrice}
                 keyboardType="numeric"
@@ -336,7 +347,8 @@ export default function Products() {
               <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
                 <TextInput
                   style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                  placeholder="Barcode"
+                  placeholder={t("products.barcode")}
+                  placeholderTextColor="#999"
                   value={updateBarcode}
                   onChangeText={setUpdateBarcode}
                 />
@@ -350,7 +362,7 @@ export default function Products() {
                     setBarcodeScanModal(true);
                   }}
                 >
-                  <Text style={styles.buttonText}>📷</Text>
+                  <Text style={styles.buttonText}>📷 QR</Text>
                 </TouchableOpacity>
               </View>
 
@@ -358,14 +370,14 @@ export default function Products() {
                 style={styles.button}
                 onPress={handleUpdateProduct}
               >
-                <Text style={styles.buttonText}>Update</Text>
+                <Text style={styles.buttonText}>{t("common.update")}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setUpdateModalVisible(false)}
               >
-                <Text style={styles.cancelText}>Cancel</Text>
+                <Text style={styles.cancelText}>{t("common.cancel")}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -376,37 +388,42 @@ export default function Products() {
         <View style={styles.modalOverlay}>
           <ScrollView>
             <View style={styles.modal}>
-              <Text style={styles.modalTitle}>Add Product</Text>
+              <Text style={styles.modalTitle}>{t("products.addProduct")}</Text>
 
               <TextInput
                 style={styles.input}
-                placeholder="Product Name"
+                placeholder={t("products.productName")}
+                placeholderTextColor="#999"
                 value={name}
                 onChangeText={setName}
               />
               <TextInput
                 style={styles.input}
-                placeholder="Model"
+                placeholder={t("products.productModel")}
+                placeholderTextColor="#999"
                 value={model}
                 onChangeText={setModel}
               />
               <TextInput
                 style={styles.input}
-                placeholder="Initial Price"
+                placeholder={t("products.initialPrice")}
+                placeholderTextColor="#999"
                 value={initialPrice}
                 onChangeText={setInitialPrice}
                 keyboardType="numeric"
               />
               <TextInput
                 style={styles.input}
-                placeholder="Bulk Price"
+                placeholder={t("products.bulkPrice")}
+                placeholderTextColor="#999"
                 value={bulkPrice}
                 onChangeText={setBulkPrice}
                 keyboardType="numeric"
               />
               <TextInput
                 style={styles.input}
-                placeholder="Retail Price"
+                placeholder={t("products.retailPrice")}
+                placeholderTextColor="#999"
                 value={retailPrice}
                 onChangeText={setRetailPrice}
                 keyboardType="numeric"
@@ -414,7 +431,8 @@ export default function Products() {
               <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
                 <TextInput
                   style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                  placeholder="Barcode (optional)"
+                  placeholder={t("products.barcode")}
+                  placeholderTextColor="#999"
                   value={barcode}
                   onChangeText={setBarcode}
                 />
@@ -428,7 +446,7 @@ export default function Products() {
                     setBarcodeScanModal(true);
                   }}
                 >
-                  <Text style={styles.buttonText}>📷</Text>
+                  <Text style={styles.buttonText}>📷 QR</Text>
                 </TouchableOpacity>
               </View>
 
@@ -436,14 +454,14 @@ export default function Products() {
                 style={styles.button}
                 onPress={handleCreateProduct}
               >
-                <Text style={styles.buttonText}>Create</Text>
+                <Text style={styles.buttonText}>{t("common.create")}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setModalVisible(false)}
               >
-                <Text style={styles.cancelText}>Cancel</Text>
+                <Text style={styles.cancelText}>{t("common.cancel")}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -471,19 +489,21 @@ export default function Products() {
                 marginBottom: 16,
               }}
             >
-              Scan this QR to add product to cart
+              {t("products.qr")}
             </Text>
             <TouchableOpacity
               style={styles.button}
               onPress={() => handleExportSinglePDF(selectedQrProduct)}
             >
-              <Text style={styles.buttonText}>🖨 Export Barcode PDF</Text>
+              <Text style={styles.buttonText}>
+                🖨 {t("products.exportBarcode")}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.button}
               onPress={() => setQrModal(false)}
             >
-              <Text style={styles.buttonText}>Close</Text>
+              <Text style={styles.buttonText}>{t("common.close")}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -499,7 +519,7 @@ export default function Products() {
             }}
           >
             <Text style={{ color: "#fff", fontSize: 20, fontWeight: "bold" }}>
-              Scan Barcode
+              {t("scanner.scanBarcode")}
             </Text>
             <TouchableOpacity
               onPress={() => {
@@ -510,7 +530,7 @@ export default function Products() {
               <Text
                 style={{ color: Colors.error, fontWeight: "600", fontSize: 16 }}
               >
-                ✕ Close
+                ✕ {t("common.close")}
               </Text>
             </TouchableOpacity>
           </View>

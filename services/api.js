@@ -3,8 +3,6 @@ import * as SecureStore from "expo-secure-store";
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 const request = async (method, endpoint, body = null) => {
-  console.log("REQUEST BODY:", JSON.stringify(body));
-  console.log("REQUEST:", method, endpoint);
   const token = await SecureStore.getItemAsync("token");
 
   const config = {
@@ -20,7 +18,6 @@ const request = async (method, endpoint, body = null) => {
 
   // ✅ Add this to see raw response
   const text = await response.text();
-  console.log("RAW RESPONSE:", text);
 
   if (response.status === 204) return null;
 

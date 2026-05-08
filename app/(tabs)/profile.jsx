@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import Colors from "../../constants/colors";
 // import useRole from "../../hooks/useRole";
+import { useTranslation } from "react-i18next";
 import useRole from "../../hooks/useRole";
 import { get, patch } from "../../services/api";
 import useAuthStore from "../../store/authStore";
@@ -33,6 +34,7 @@ export default function Profile() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const { t } = useTranslation();
 
   // Check user
   const isUser = useRole().role === "user";
@@ -63,7 +65,7 @@ export default function Profile() {
       await patch("/users/updateMe", { name, email, phone });
       setEditModal(false);
       fetchUser();
-      Alert.alert("Success", "Profile updated successfully!");
+      Alert.alert(t("common.success"), t("profile.updatedSuccessfully"));
     } catch (err) {
       Alert.alert("Error", err.message);
     }
@@ -71,11 +73,11 @@ export default function Profile() {
 
   const handleChangePassword = async () => {
     if (newPassword !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match");
+      Alert.alert(t("common.errorTitle"), t("profile.passwordMismatch"));
       return;
     }
     if (newPassword.length < 8) {
-      Alert.alert("Error", "Password must be at least 8 characters");
+      Alert.alert(t("common.errorTitle"), t("auth.passwordShort"));
       return;
     }
     try {
@@ -88,7 +90,10 @@ export default function Profile() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      Alert.alert("Success", "Password changed! Please login again.");
+      Alert.alert(
+        t("common.success"),
+        `${t("profile.passwordChanged")} ${t("profile.relogin")}`,
+      );
       await logout();
       router.replace("/(auth)/login");
     } catch (err) {
@@ -97,10 +102,10 @@ export default function Profile() {
   };
 
   const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("profile.logout"), t("profile.logoutConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Logout",
+        text: t("profile.logout"),
         style: "destructive",
         onPress: async () => {
           await logout();
@@ -122,7 +127,7 @@ export default function Profile() {
     <ScrollView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle}>{t("profile.title")}</Text>
       </View>
       {/* Avatar */}
       <View style={styles.avatarSection}>
@@ -136,10 +141,10 @@ export default function Profile() {
       </View>
       {/* Info Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account Info</Text>
+        <Text style={styles.sectionTitle}>{t("profile.accountInfo")}</Text>
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Name</Text>
+            <Text style={styles.infoLabel}>{t("profile.name")}</Text>
             <Text style={styles.infoValue}>{user?.name}</Text>
           </View>
 
@@ -147,12 +152,12 @@ export default function Profile() {
 
           {/* Email */}
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Email</Text>
+            <Text style={styles.infoLabel}>{t("profile.email")}</Text>
             {user?.email ? (
               <Text style={styles.infoValue}>{user.email}</Text>
             ) : (
               <TouchableOpacity onPress={() => setEditModal(true)}>
-                <Text style={styles.addText}>+ Add email</Text>
+                <Text style={styles.addText}>+ {t("profile.addEmail")}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -161,12 +166,12 @@ export default function Profile() {
 
           {/* Phone */}
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Phone</Text>
+            <Text style={styles.infoLabel}>{t("profile.phone")}</Text>
             {user?.phone ? (
               <Text style={styles.infoValue}>{user.phone}</Text>
             ) : (
               <TouchableOpacity onPress={() => setEditModal(true)}>
-                <Text style={styles.addText}>+ Add phone</Text>
+                <Text style={styles.addText}>+ {t("profile.addPhone")}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -174,13 +179,13 @@ export default function Profile() {
       </View>
       {/* Actions */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Settings</Text>
+        <Text style={styles.sectionTitle}>{t("profile.settings")}</Text>
         <View style={styles.actionsCard}>
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => setEditModal(true)}
           >
-            <Text style={styles.actionText}>✏️ Edit Profile</Text>
+            <Text style={styles.actionText}>✏️ {t("profile.editProfile")}</Text>
             <Text style={styles.actionArrow}>›</Text>
           </TouchableOpacity>
 
@@ -190,7 +195,9 @@ export default function Profile() {
             style={styles.actionRow}
             onPress={() => setPasswordModal(true)}
           >
-            <Text style={styles.actionText}>🔒 Change Password</Text>
+            <Text style={styles.actionText}>
+              🔒 {t("profile.changePassword")}
+            </Text>
             <Text style={styles.actionArrow}>›</Text>
           </TouchableOpacity>
 
@@ -202,7 +209,9 @@ export default function Profile() {
               style={styles.actionRow}
               onPress={() => router.push("/scanner")}
             >
-              <Text style={styles.actionText}>📷 Scan QR to Join</Text>
+              <Text style={styles.actionText}>
+                📷 {t("profile.scanToJoin")}
+              </Text>
               <Text style={styles.actionArrow}>›</Text>
             </TouchableOpacity>
           )}
@@ -211,23 +220,25 @@ export default function Profile() {
 
       {/* Logout */}
       <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Logout</Text>
+        <Text style={styles.logoutText}>{t("profile.logout")}</Text>
       </TouchableOpacity>
       <View style={{ height: 40 }} />
       {/* Edit Profile Modal */}
       <Modal visible={editModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Edit Profile</Text>
+            <Text style={styles.modalTitle}>{t("profile.editProfile")}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Full Name"
+              placeholder={t("profile.fullName")}
+              placeholderTextColor="#999"
               value={name}
               onChangeText={setName}
             />
             <TextInput
               style={styles.input}
-              placeholder="Email"
+              placeholder={t("profile.email")}
+              placeholderTextColor="#999"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -235,7 +246,8 @@ export default function Profile() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Phone"
+              placeholder={t("profile.phone")}
+              placeholderTextColor="#999"
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
@@ -244,13 +256,13 @@ export default function Profile() {
               style={styles.button}
               onPress={handleUpdateProfile}
             >
-              <Text style={styles.buttonText}>Save</Text>
+              <Text style={styles.buttonText}>{t("common.save")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setEditModal(false)}
             >
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -259,24 +271,27 @@ export default function Profile() {
       <Modal visible={passwordModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Change Password</Text>
+            <Text style={styles.modalTitle}>{t("profile.changePassword")}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Current Password"
+              placeholder={t("profile.currentPassword")}
+              placeholderTextColor="#999"
               value={currentPassword}
               onChangeText={setCurrentPassword}
               secureTextEntry
             />
             <TextInput
               style={styles.input}
-              placeholder="New Password"
+              placeholder={t("profile.newPassword")}
+              placeholderTextColor="#999"
               value={newPassword}
               onChangeText={setNewPassword}
               secureTextEntry
             />
             <TextInput
               style={styles.input}
-              placeholder="Confirm New Password"
+              placeholder={t("profile.confirmNewPassword")}
+              placeholderTextColor="#999"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
@@ -285,13 +300,15 @@ export default function Profile() {
               style={styles.button}
               onPress={handleChangePassword}
             >
-              <Text style={styles.buttonText}>Change Password</Text>
+              <Text style={styles.buttonText}>
+                {t("profile.changePassword")}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setPasswordModal(false)}
             >
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
           </View>
         </View>

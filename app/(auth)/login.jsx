@@ -1,42 +1,44 @@
+import { router } from "expo-router";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Alert
+  View,
 } from "react-native";
-import { useState } from "react";
-import { router } from "expo-router";
-import useAuthStore from "../../store/authStore";
 import Colors from "../../constants/colors";
-import { isValidEmail, isValidPhone } from '../../utils/validate';
+import useAuthStore from "../../store/authStore";
+import { isValidEmail } from "../../utils/validate";
 
 export default function Login() {
   const [emailOrPhone, setEmailOrPhone] = useState("");
   const [password, setPassword] = useState("");
   const { login, isLoading, error } = useAuthStore();
+  const { t } = useTranslation();
 
   const handleLogin = async () => {
-  if (!emailOrPhone) {
-    Alert.alert('Error', 'Please enter email or phone');
-    return;
-  }
-  const isPhone = emailOrPhone.startsWith('+') || /^\d+$/.test(emailOrPhone);
-  if (!isPhone && !isValidEmail(emailOrPhone)) {
-    Alert.alert('Error', 'Please enter a valid email address');
-    return;
-  }
-  if (!password) {
-    Alert.alert('Error', 'Please enter password');
-    return;
-  }
-  const success = await login(emailOrPhone, password);
-  if (success) router.replace('/(tabs)/reports');
-};
+    if (!emailOrPhone) {
+      Alert.alert("Error", t("auth.required"));
+      return;
+    }
+    const isPhone = emailOrPhone.startsWith("+") || /^\d+$/.test(emailOrPhone);
+    if (!isPhone && !isValidEmail(emailOrPhone)) {
+      Alert.alert("Error", t("auth.validEmailOrPhone"));
+      return;
+    }
+    if (!password) {
+      Alert.alert("Error", t("auth.requiredPassword"));
+      return;
+    }
+    const success = await login(emailOrPhone, password);
+    if (success) router.replace("/(tabs)/reports");
+  };
 
   return (
     <KeyboardAvoidingView
@@ -45,13 +47,14 @@ export default function Login() {
     >
       <View style={styles.inner}>
         <Text style={styles.title}>SavdoUz</Text>
-        <Text style={styles.subtitle}>Sign in to your account</Text>
+        <Text style={styles.subtitle}>{t("auth.loginTitle")}</Text>
 
         {error && <Text style={styles.error}>{error}</Text>}
 
         <TextInput
           style={styles.input}
-          placeholder="Email or Phone"
+          placeholder={t("auth.emailOrPhone")}
+          placeholderTextColor="#999"
           value={emailOrPhone}
           onChangeText={setEmailOrPhone}
           autoCapitalize="none"
@@ -60,7 +63,8 @@ export default function Login() {
 
         <TextInput
           style={styles.input}
-          placeholder="Password"
+          placeholder={t("auth.password")}
+          placeholderTextColor="#999"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -74,12 +78,12 @@ export default function Login() {
           {isLoading ? (
             <ActivityIndicator color={Colors.white} />
           ) : (
-            <Text style={styles.buttonText}>Login</Text>
+            <Text style={styles.buttonText}>{t("auth.login")}</Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push("/(auth)/signup")}>
-          <Text style={styles.link}>Don't have an account? Sign up</Text>
+          <Text style={styles.link}>{t("auth.newUser")}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

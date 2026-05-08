@@ -1,5 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +33,7 @@ export default function DeliveryHistory() {
   const [expandedId, setExpandedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
+  const { t } = useTranslation();
 
   const dates = getLast30Days();
 
@@ -81,9 +83,9 @@ export default function DeliveryHistory() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>← Back</Text>
+          <Text style={styles.back}>← {t("common.back")}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Delivery History</Text>
+        <Text style={styles.headerTitle}>{t("delivery.historyTitle")}</Text>
         <View />
       </View>
 
@@ -91,13 +93,14 @@ export default function DeliveryHistory() {
       <View style={styles.filters}>
         <TextInput
           style={styles.input}
-          placeholder="Search by name, model or outlet..."
+          placeholder={t("delivery.searchDelivery")}
+  placeholderTextColor="#999"
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
 
         {/* Date Picker — scroll through last 30 days */}
-        <Text style={styles.filterLabel}>Filter by date:</Text>
+        <Text style={styles.filterLabel}>{t("delivery.filterByDate")}:</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <TouchableOpacity
             style={[
@@ -112,7 +115,7 @@ export default function DeliveryHistory() {
                 selectedDate === "" && styles.dateChipTextActive,
               ]}
             >
-              All
+              {t("common.all")}
             </Text>
           </TouchableOpacity>
           {dates.map((date) => (
@@ -131,7 +134,7 @@ export default function DeliveryHistory() {
                 ]}
               >
                 {date === new Date().toISOString().split("T")[0]
-                  ? "Today"
+                  ? t("common.today")
                   : date.slice(5)}
               </Text>
             </TouchableOpacity>
@@ -146,7 +149,7 @@ export default function DeliveryHistory() {
               setSelectedDate("");
             }}
           >
-            <Text style={styles.clearText}>✕ Clear filters</Text>
+            <Text style={styles.clearText}>✕ {t("delivery.clearFilter")}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -158,8 +161,8 @@ export default function DeliveryHistory() {
         ListEmptyComponent={
           <Text style={styles.empty}>
             {searchQuery || selectedDate
-              ? "No deliveries match your filters"
-              : "No deliveries yet"}
+              ? t("delivery.noMatches")
+              : t("delivery.noDeliveries")}
           </Text>
         }
         renderItem={({ item }) => (

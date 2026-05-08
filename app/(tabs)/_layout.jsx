@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { useTranslation } from "react-i18next";
 import Colors from "../../constants/colors";
 
 export default function TabsLayout() {
+  const { t } = useTranslation();
   return (
     <Tabs
       screenOptions={{
@@ -18,7 +20,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="reports"
         options={{
-          title: "Sales",
+          title: t("tabs.sales"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="bar-chart-outline" color={color} size={size} />
           ),
@@ -27,7 +29,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="products"
         options={{
-          title: "Products",
+          title: t("tabs.products"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="cube-outline" color={color} size={size} />
           ),
@@ -36,7 +38,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="stores"
         options={{
-          title: "Stores",
+          title: t("tabs.stores"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="storefront-outline" color={color} size={size} />
           ),
@@ -45,7 +47,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="warehouse"
         options={{
-          title: "Warehouse",
+          title: t("tabs.warehouse"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="business-outline" color={color} size={size} />
           ),
@@ -54,18 +56,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: t("tabs.profile"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" color={color} size={size} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="transactions"
-        options={{
-          title: "Transactions",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="receipt-outline" color={color} size={size} />
           ),
         }}
       />
