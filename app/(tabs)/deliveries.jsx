@@ -1,9 +1,10 @@
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
-  Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,7 +13,8 @@ import {
   View,
 } from "react-native";
 import Colors from "../../constants/colors";
-import { get, post } from "../../services/api";
+import useRole from "../../hooks/useRole";
+import { get, getCached, invalidateCache, post } from "../../services/api";
 
 export default function NewDelivery({ onClose }) {
   const [stores, setStores] = useState([]);
@@ -26,56 +28,105 @@ export default function NewDelivery({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [deliveryError, setDeliveryError] = useState(false);
+  const [error, setError] = useState(null);
+  const [workerOutlet, setWorkerOutlet] = useState(null);
+  const scrollRef = useRef(null);
   const { t } = useTranslation();
 
-  const handleClose = () => {
-    if (onClose) onClose();
-    else router.back();
-  };
+  const { role } = useRole();
+  const isWorker = role === "worker";
 
-  const fetchStores = async () => {
-    try {
-      const data = await get("/stores");
-      setStores(data.data.stores);
-    } catch (err) {
-      Alert.alert("Error", err.message);
+  const getError = () => {
+    if (!fromId) return t("delivery.selectSource");
+    if (!toId) return t("delivery.selectDestination");
+    if (fromId === toId) return t("delivery.sameSourceDest");
+    if (cart.length === 0) return t("delivery.emptyCart");
+
+    const invalidItems = cart.filter(
+      (item) => !item.quantity || Number(item.quantity) < 1,
+    );
+    if (invalidItems.length > 0) {
+      return `${t("delivery.invalidQuantity")} ${invalidItems.map((i) => i.name).join(", ")}`;
     }
+    const zeroStockItems = cart.filter((item) => {
+      const sourceProduct = sourceProducts.find((p) => p._id === item._id);
+      return sourceProduct && sourceProduct.quantity === 0;
+    });
+
+    if (zeroStockItems.length > 0) {
+      return `${t("delivery.outOfStock")}: ${zeroStockItems.map((i) => i.name).join(", ")}`;
+    }
+
+    return null;
   };
 
-  const fetchWarehouses = async () => {
+  const fetchOutlets = async () => {
     try {
-      const data = await get("/warehouses");
-      setWarehouses(data.data.warehouses);
+      if (isWorker) {
+        const data = await getCached("/outlets/my-outlet");
+        const outlet = data?.data?.outlet;
+        setWorkerOutlet(outlet);
+
+        setFromId(outlet?._id);
+        setFromType(outlet?.type);
+
+        if (outlet?._id) fetchSourceProducts(outlet.type, outlet._id);
+      }
+
+      const [storesData, warehousesData] = await Promise.all([
+        getCached("/outlets?type=store"),
+        getCached("/outlets?type=warehouse"),
+      ]);
+      setStores(storesData.data?.outlets || []);
+      setWarehouses(warehousesData.data?.outlets || []);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setError(err.message);
     }
   };
 
   const fetchSourceProducts = async (type, id) => {
     try {
-      if (type === "warehouse") {
-        const data = await get(`/warehouses/products/warehouse/${id}`);
-        setSourceProducts(data.data.whProduct || []);
-      } else {
-        const data = await get(`/stores/products/${id}`);
-        const inventory = data.data.inventory;
-        setSourceProducts(
-          Array.isArray(inventory) ? inventory : inventory ? [inventory] : [],
-        );
-      }
+      const data = await get(`/outlets/products/${id}`);
+      const inventory = data.data?.products;
+      setSourceProducts(
+        Array.isArray(inventory) ? inventory : inventory ? [inventory] : [],
+      );
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setError(err.message);
     }
   };
 
   useEffect(() => {
     const loadData = async () => {
       setDataLoading(true);
-      await Promise.all([fetchStores(), fetchWarehouses()]);
+      fetchOutlets();
       setDataLoading(false);
     };
     loadData();
   }, []);
+  const resetForm = () => {
+    setFromType("");
+    setToType("");
+    setFromId(null);
+    setToId(null);
+    setSourceProducts([]);
+    setCart([]);
+    setSearchQuery("");
+    setDeliveryError(false);
+    setError(null);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  };
+  useFocusEffect(
+    useCallback(() => {
+      scrollRef.current?.scrollTo({ y: 0, x: 0, animated: false });
+
+      return () => {
+        resetForm();
+      };
+    }, []),
+  );
 
   const handleSelectFrom = (type, id) => {
     setFromType(type);
@@ -113,33 +164,8 @@ export default function NewDelivery({ onClose }) {
   };
 
   const handleCreateDelivery = async () => {
-    if (!fromId) {
-      Alert.alert(t("delivery.error"), t("delivery.selectSource"));
-      return;
-    }
-    if (!toId) {
-      Alert.alert(t("delivery.error"), t("delivery.selectDestination"));
-      return;
-    }
-    if (fromId === toId) {
-      Alert.alert(t("delivery.error"), t("delivery.sameSourceDest"));
-      return;
-    }
-    if (cart.length === 0) {
-      Alert.alert(t("delivery.error"), t("delivery.emptyCart"));
-      return;
-    }
-
-    const invalidItems = cart.filter(
-      (item) => !item.quantity || Number(item.quantity) < 1,
-    );
-    if (invalidItems.length > 0) {
-      Alert.alert(
-        t("delivery.error"),
-        `${t("delivery.invalidQuantity")} ${invalidItems.map((i) => i.name).join(", ")}`,
-      );
-      return;
-    }
+    setDeliveryError(true);
+    if (getError()) return;
 
     try {
       setLoading(true);
@@ -149,16 +175,18 @@ export default function NewDelivery({ onClose }) {
         toType,
         toId,
         products: cart.map((item) => ({
-          productId: item.product?._id || item.product,
+          productId: item.product?._id || item.product || item._id,
           quantity: Number(item.quantity),
         })),
       });
-
-      Alert.alert(t("delivery.success"), t("delivery.createdSuccess"), [
-        { text: t("delivery.ok"), onPress: handleClose },
-      ]);
+      // Invalidate source outlet products — stock changed
+      invalidateCache(`/outlets/products/${fromId}`);
+      invalidateCache(`/outlets?type=store`);
+      invalidateCache(`/outlets?type=warehouse`);
+      invalidateCache(`/outlets/my-outlet`);
+      setSuccess(true);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -181,88 +209,127 @@ export default function NewDelivery({ onClose }) {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.container}
+      stickyHeaderIndices={[0]}
+    >
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleClose}>
-          <Text style={styles.back}>← {t("common.back")}</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t("delivery.newDelivery")}</Text>
-        <View />
+      <View>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>{t("delivery.newDelivery")}</Text>
+          <TouchableOpacity onPress={() => router.push("delivery/history")}>
+            <Ionicons name="time-outline" size={24} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Step 1 - From */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle,{textTransform: "capitalize"}}>1. {t("common.from")}</Text>
-        <View style={styles.row}>
-          <TouchableOpacity
+        <Text style={styles.sectionTitle}>{t("common.from")}</Text>
+
+        {isWorker && workerOutlet ? (
+          <View
             style={[
-              styles.typeBtn,
-              fromType === "store" && styles.typeBtnActive,
+              styles.chip,
+              styles.chipActive,
+              { alignSelf: "flex-start" },
             ]}
-            onPress={() => {
-              setFromType("store");
-              setFromId(null);
-              setCart([]);
-              setSourceProducts([]);
-            }}
           >
-            <Text
-              style={[
-                styles.typeTxt,
-                fromType === "store" && styles.typeTxtActive,
-              ]}
-            >
-              🏪 {t("stores.store")}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.typeBtn,
-              fromType === "warehouse" && styles.typeBtnActive,
-            ]}
-            onPress={() => {
-              setFromType("warehouse");
-              setFromId(null);
-              setCart([]);
-              setSourceProducts([]);
-            }}
-          >
-            <Text
-              style={[
-                styles.typeTxt,
-                fromType === "warehouse" && styles.typeTxtActive,
-              ]}
-            >
-              🏭 {t("warehouse.warehouse")}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {fromType && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {getOutlets(fromType).map((item) => (
+            <Text style={styles.chipTextActive}>{workerOutlet.name}</Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.row}>
               <TouchableOpacity
-                key={item._id}
-                style={[styles.chip, fromId === item._id && styles.chipActive]}
-                onPress={() => handleSelectFrom(fromType, item._id)}
+                style={[
+                  styles.typeBtn,
+                  fromType === "store" && styles.typeBtnActive,
+                ]}
+                onPress={() => {
+                  setFromType("store");
+                  setFromId(null);
+                  setCart([]);
+                  setSourceProducts([]);
+                }}
               >
+                <Ionicons
+                  name="storefront-sharp"
+                  size={16}
+                  style={[
+                    styles.typeTxt,
+                    fromType === "store" && styles.typeTxtActive,
+                  ]}
+                />
                 <Text
                   style={[
-                    styles.chipText,
-                    fromId === item._id && styles.chipTextActive,
+                    styles.typeTxt,
+                    fromType === "store" && styles.typeTxtActive,
                   ]}
                 >
-                  {item.name}
+                  {t("stores.store")}
                 </Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+              <TouchableOpacity
+                style={[
+                  styles.typeBtn,
+                  fromType === "warehouse" && styles.typeBtnActive,
+                ]}
+                onPress={() => {
+                  setFromType("warehouse");
+                  setFromId(null);
+                  setCart([]);
+                  setSourceProducts([]);
+                }}
+              >
+                <MaterialIcons
+                  name="warehouse"
+                  size={18}
+                  style={[
+                    styles.typeTxt,
+                    fromType === "warehouse" && styles.typeTxtActive,
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.typeTxt,
+                    fromType === "warehouse" && styles.typeTxtActive,
+                  ]}
+                >
+                  {t("warehouse.warehouse")}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {fromType && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {getOutlets(fromType).map((item) => (
+                  <TouchableOpacity
+                    key={item._id}
+                    style={[
+                      styles.chip,
+                      fromId === item._id && styles.chipActive,
+                    ]}
+                    onPress={() => handleSelectFrom(fromType, item._id)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        fromId === item._id && styles.chipTextActive,
+                      ]}
+                    >
+                      {item.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </>
         )}
       </View>
 
       {/* Step 2 - To */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>2. To</Text>
+        <Text style={styles.sectionTitle}>{t("common.to")}</Text>
         <View style={styles.row}>
           <TouchableOpacity
             style={[styles.typeBtn, toType === "store" && styles.typeBtnActive]}
@@ -271,13 +338,21 @@ export default function NewDelivery({ onClose }) {
               setToId(null);
             }}
           >
+            <Ionicons
+              name="storefront-sharp"
+              size={16}
+              style={[
+                styles.typeTxt,
+                toType === "store" && styles.typeTxtActive,
+              ]}
+            />
             <Text
               style={[
                 styles.typeTxt,
                 toType === "store" && styles.typeTxtActive,
               ]}
             >
-              🏪 {t("stores.store")}
+              {t("stores.store")}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -290,13 +365,21 @@ export default function NewDelivery({ onClose }) {
               setToId(null);
             }}
           >
+            <MaterialIcons
+              name="warehouse"
+              size={18}
+              style={[
+                styles.typeTxt,
+                toType === "warehouse" && styles.typeTxtActive,
+              ]}
+            />
             <Text
               style={[
                 styles.typeTxt,
                 toType === "warehouse" && styles.typeTxtActive,
               ]}
             >
-              🏭 {t("warehouse.warehouse")}
+              {t("warehouse.warehouse")}
             </Text>
           </TouchableOpacity>
         </View>
@@ -323,13 +406,13 @@ export default function NewDelivery({ onClose }) {
       </View>
 
       {/* Step 3 - Products */}
-      {fromId && (
+      {fromId && toId && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>3. {t("products.selectProduct")}</Text>
+          <Text style={styles.sectionTitle}>{t("products.selectProduct")}</Text>
           <TextInput
             style={styles.input}
             placeholder={t("products.searchProduct")}
-  placeholderTextColor="#999"
+            placeholderTextColor="#999"
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
@@ -385,7 +468,9 @@ export default function NewDelivery({ onClose }) {
                         style={styles.addBtn}
                         onPress={() => addToCart(item)}
                       >
-                        <Text style={styles.addBtnText}>+ {t("common.add")}</Text>
+                        <Text style={styles.addBtnText}>
+                          + {t("common.add")}
+                        </Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -399,7 +484,41 @@ export default function NewDelivery({ onClose }) {
       {/* Summary */}
       {cart.length > 0 && (
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>{t("reports.summary")}</Text>
+          <View style={styles.summaryHeader}>
+            <Text style={styles.summaryTitle}>{t("reports.summary")}</Text>
+            <View style={styles.summaryRoute}>
+              <View style={styles.summaryRouteChip}>
+                <Ionicons
+                  name={
+                    fromType === "store" ? "storefront-outline" : "cube-outline"
+                  }
+                  size={14}
+                  color={Colors.primary}
+                />
+                <Text style={styles.summaryRouteText} numberOfLines={1}>
+                  {getOutlets(fromType).find((o) => o._id === fromId)?.name ||
+                    workerOutlet?.name}
+                </Text>
+              </View>
+              <Ionicons
+                name="arrow-forward"
+                size={16}
+                color={Colors.textLight}
+              />
+              <View style={styles.summaryRouteChip}>
+                <Ionicons
+                  name={
+                    toType === "store" ? "storefront-outline" : "cube-outline"
+                  }
+                  size={14}
+                  color={Colors.primary}
+                />
+                <Text style={styles.summaryRouteText} numberOfLines={1}>
+                  {getOutlets(toType).find((o) => o._id === toId)?.name}
+                </Text>
+              </View>
+            </View>
+          </View>
           {cart.map((item) => (
             <View key={item._id} style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>
@@ -409,7 +528,9 @@ export default function NewDelivery({ onClose }) {
             </View>
           ))}
           <View style={[styles.summaryRow, { marginTop: 8 }]}>
-            <Text style={styles.summaryLabel}>{t("reports.totalProducts")}</Text>
+            <Text style={styles.summaryLabel}>
+              {t("reports.totalProducts")}
+            </Text>
             <Text style={[styles.summaryValue, { color: Colors.primary }]}>
               {cart.length} {t("delivery.types")}
             </Text>
@@ -418,6 +539,14 @@ export default function NewDelivery({ onClose }) {
       )}
 
       {/* Submit */}
+      {deliveryError && getError() && (
+        <View style={styles.error}>
+          <Text style={styles.errorText}>
+            {getError()} {error}
+          </Text>
+        </View>
+      )}
+
       {cart.length > 0 && (
         <TouchableOpacity
           style={styles.submitButton}
@@ -435,6 +564,32 @@ export default function NewDelivery({ onClose }) {
       )}
 
       <View style={{ height: 40 }} />
+
+      <Modal visible={success} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modal}>
+            <Ionicons
+              name="checkmark-circle"
+              size={60}
+              color={Colors.success}
+            />
+            <Text style={styles.modalTitle}>{t("delivery.success")}</Text>
+            <Text style={styles.modalSubtitle}>
+              {t("delivery.createdSuccess")}
+            </Text>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => {
+                setSuccess(false);
+                resetForm();
+                onClose?.();
+              }}
+            >
+              <Text style={styles.buttonText}>{t("common.ok")}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -444,22 +599,27 @@ const styles = StyleSheet.create({
   loader: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 20,
+    paddingHorizontal: 30,
+    paddingBottom: 20,
     paddingTop: 60,
     backgroundColor: Colors.white,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
   back: { color: Colors.primary, fontSize: 16 },
-  headerTitle: { fontSize: 20, fontWeight: "bold", color: Colors.text },
+  headerTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.text,
+  },
   section: { margin: 16 },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: Colors.text,
     marginBottom: 12,
+    textTransform: "capitalize",
   },
   row: { flexDirection: "row", gap: 12, marginBottom: 12 },
   typeBtn: {
@@ -468,8 +628,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.border,
+    flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
     backgroundColor: Colors.white,
+    gap: 8,
   },
   typeBtnActive: {
     backgroundColor: Colors.primary,
@@ -552,11 +715,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  summaryHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
   summaryTitle: {
     fontSize: 18,
     fontWeight: "bold",
     color: Colors.text,
-    marginBottom: 12,
   },
   summaryRow: {
     flexDirection: "row",
@@ -576,4 +747,72 @@ const styles = StyleSheet.create({
   },
   submitButtonText: { color: Colors.white, fontWeight: "bold", fontSize: 18 },
   empty: { textAlign: "center", color: Colors.textLight, marginTop: 20 },
+  error: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  errorText: {
+    color: Colors.error,
+    fontSize: 18,
+    textAlign: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  modal: {
+    width: "85%",
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Colors.text,
+    textAlign: "center",
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: Colors.textLight,
+    textAlign: "center",
+  },
+  button: {
+    width: "100%",
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  buttonText: {
+    color: Colors.white,
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  summaryRoute: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  summaryRouteChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+  },
+  summaryRouteText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.primary,
+  },
 });

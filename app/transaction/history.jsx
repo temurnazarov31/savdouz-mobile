@@ -1,9 +1,11 @@
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
-  Alert,
+  FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,9 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SkeletonList } from "../../components/skeleton";
 import Colors from "../../constants/colors";
 import useRole from "../../hooks/useRole";
-import { get } from "../../services/api";
+import { get, getCached } from "../../services/api";
 
 export default function TransactionHistory() {
   const [transactions, setTransactions] = useState([]);
@@ -23,39 +26,54 @@ export default function TransactionHistory() {
   const [selectedOutletId, setSelectedOutletId] = useState(null);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [expandedTransaction, setExpandedTransaction] = useState(null);
   const { isOwner, role } = useRole();
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const { t } = useTranslation();
 
   const fetchOutlets = async () => {
     try {
       if (isOwner) {
         const [storesData, warehousesData] = await Promise.all([
-          get("/stores"),
-          get("/warehouses"),
+          getCached("/outlets?type=store"),
+          getCached("/outlets?type=warehouse"),
         ]);
-        setStores(storesData.data.stores || []);
-        setWarehouses(warehousesData.data.warehouses || []);
+        setStores(storesData.data?.outlets || []);
+        setWarehouses(warehousesData.data?.outlets || []);
       }
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
   };
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = async (pageNum = 1, append = false) => {
     try {
-      setLoading(true);
-      let url = "/transactions?";
-      if (selectedOutletId) url += `outletId=${selectedOutletId}&`;
-      if (startDate) url += `startDate=${startDate}&`;
-      if (endDate) url += `endDate=${endDate}&`;
+      if (pageNum === 1) setLoading(true);
+      else setLoadingMore(true);
+
+      let url = `/transactions?page=${pageNum}&limit=20`;
+      if (selectedOutletId) url += `&outletId=${selectedOutletId}`;
+      if (startDate) url += `&startDate=${startDate}`;
+      if (endDate) url += `&endDate=${endDate}`;
 
       const data = await get(url);
-      setTransactions(data.data.transactions || []);
+      const newTransactions = data.data?.transactions || [];
+
+      if (append) {
+        setTransactions((prev) => [...prev, ...newTransactions]);
+      } else {
+        setTransactions(newTransactions);
+      }
+
+      setHasMore(newTransactions.length === 20);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -67,14 +85,25 @@ export default function TransactionHistory() {
   );
 
   const handleFilter = () => {
-    fetchTransactions();
+    setPage(1);
+    setHasMore(true);
+    fetchTransactions(1, false); // fresh fetch
   };
 
   const handleClearFilter = () => {
     setSelectedOutletId(null);
     setStartDate("");
     setEndDate("");
-    setTimeout(() => fetchTransactions(), 100);
+    setPage(1);
+    setHasMore(true);
+    setTimeout(() => fetchTransactions(1, false), 100);
+  };
+
+  const handleLoadMore = () => {
+    if (!hasMore || loadingMore) return;
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchTransactions(nextPage, true);
   };
 
   return (
@@ -82,14 +111,13 @@ export default function TransactionHistory() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>← {t("common.back")}</Text>
+          <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
           {t("transactions.transactionHistory")}
         </Text>
         <View />
       </View>
-
       {/* Filters */}
       <View style={styles.filterSection}>
         {/* Date Range */}
@@ -195,6 +223,7 @@ export default function TransactionHistory() {
           </View>
         </View>
 
+        <Text style={styles.outletTitle}>{t("stores.title")}:</Text>
         {/* Outlet Filter — owner only */}
         {isOwner && (
           <ScrollView
@@ -230,7 +259,7 @@ export default function TransactionHistory() {
                     selectedOutletId === store._id && styles.chipTextActive,
                   ]}
                 >
-                  🏪 {store.name}
+                  {store.name}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -249,7 +278,7 @@ export default function TransactionHistory() {
                     selectedOutletId === warehouse._id && styles.chipTextActive,
                   ]}
                 >
-                  🏭 {warehouse.name}
+                  {warehouse.name}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -259,36 +288,44 @@ export default function TransactionHistory() {
         {/* Filter Buttons */}
         <View style={styles.filterBtns}>
           <TouchableOpacity style={styles.filterBtn} onPress={handleFilter}>
-            <Text style={styles.filterBtnText}>🔍 {t("common.filter")}</Text>
+            <Ionicons name="search-outline" size={16} color={Colors.white} />
+            <Text style={styles.filterBtnText}>{t("common.filter")}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.clearBtn} onPress={handleClearFilter}>
-            <Text style={styles.clearBtnText}>✕ {t("common.clear")}</Text>
+            <Ionicons name="close-outline" size={20} color={Colors.error} />
+            <Text style={styles.clearBtnText}>{t("common.clear")}</Text>
           </TouchableOpacity>
         </View>
       </View>
-
       {/* Transaction List */}
       {loading ? (
-        <ActivityIndicator
-          size="large"
-          color={Colors.primary}
-          style={styles.loader}
-        />
-      ) : transactions.length === 0 ? (
-        <Text style={styles.empty}>{t("transactions.noTransactions")}</Text>
+        <View style={{ padding: 16 }}>
+          <SkeletonList count={5} type="transaction" />
+        </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.list}>
-          {transactions.map((transaction, index) => (
+        <FlatList
+          data={transactions}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={styles.list}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          ListEmptyComponent={
+            <Text style={styles.empty}>{t("transactions.noTransactions")}</Text>
+          }
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator
+                size="small"
+                color={Colors.primary}
+                style={{ padding: 16 }}
+              />
+            ) : null
+          }
+          renderItem={({ item: transaction }) => (
             <TouchableOpacity
-              key={transaction._id}
               style={styles.transactionCard}
-              onPress={() =>
-                setExpandedTransaction(
-                  expandedTransaction === index ? null : index,
-                )
-              }
+              onPress={() => setSelectedTransaction(transaction)}
             >
-              {/* Row 1 - Date & Products Count */}
               <View style={styles.transactionHeader}>
                 <Text style={styles.transactionProduct}>
                   {transaction.products?.length} {t("reports.product")}
@@ -308,8 +345,6 @@ export default function TransactionHistory() {
                   })}
                 </Text>
               </View>
-
-              {/* Row 2 - Total & Payment */}
               <View style={styles.transactionDetails}>
                 <Text style={styles.transactionDetail}>
                   {t("common.quantity")}: {transaction.totalQuantity} |{" "}
@@ -320,11 +355,9 @@ export default function TransactionHistory() {
                 <Text
                   style={[styles.transactionDetail, { color: Colors.primary }]}
                 >
-                  {transaction.totalAmount?.toLocaleString()} UZS
+                  {transaction.totalAmount?.toLocaleString()}
                 </Text>
               </View>
-
-              {/* Row 3 - Sold by & Profit */}
               <View style={styles.transactionDetails}>
                 <Text style={styles.transactionDetail}>
                   {transaction.soldBy?.name}
@@ -336,53 +369,304 @@ export default function TransactionHistory() {
                       { color: Colors.success },
                     ]}
                   >
-                    +{transaction.totalProfit?.toLocaleString()} UZS
+                    +{transaction.totalProfit?.toLocaleString()}
                   </Text>
                 )}
               </View>
+            </TouchableOpacity>
+          )}
+        />
+      )}
+      {/* Error Modal */}
+      <Modal visible={!!errorMessage} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="close-circle" size={48} color={Colors.error} />
+            <Text style={styles.centeredTitle}>{t("common.errorTitle")}</Text>
+            <Text style={styles.centeredSubtitle}>{errorMessage}</Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                style={styles.centeredBtn}
+                onPress={() => setErrorMessage(null)}
+              >
+                <Text style={styles.centeredBtnText}>{t("common.ok")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Transaction Detail Modal */}
+      <Modal visible={!!selectedTransaction} transparent animationType="slide">
+        <View style={styles.centeredOverlay}>
+          <View style={[styles.centeredModal, { maxHeight: "95%" }]}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <Text style={styles.centeredTitle}>
+                {selectedTransaction?.products?.length} {t("reports.product")}
+              </Text>
+              <TouchableOpacity onPress={() => setSelectedTransaction(null)}>
+                <Ionicons name="close" size={32} color={Colors.textLight} />
+              </TouchableOpacity>
+            </View>
 
-              {/* Expanded Products */}
-              {expandedTransaction === index && (
-                <View style={styles.expandedProducts}>
-                  {transaction.products?.map((p, i) => (
-                    <View key={i} style={styles.expandedProduct}>
-                      <View style={styles.transactionHeader}>
-                        <Text style={styles.expandedName}>{p.name}</Text>
+            {/* Meta info */}
+            <View
+              style={{
+                borderRadius: 12,
+                marginBottom: 12,
+                gap: 6,
+              }}
+            >
+              <View style={styles.transactionDetails}>
+                <Text style={[styles.transactionDetail, { fontSize: 18 }]}>
+                  {t("common.date")}
+                </Text>
+                <Text style={[styles.transactionDetail, { fontSize: 18 }]}>
+                  {new Date(selectedTransaction?.createdAt).toLocaleDateString(
+                    "uz-UZ",
+                    {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      timeZone: "Asia/Tashkent",
+                    },
+                  )}{" "}
+                  {new Date(selectedTransaction?.createdAt).toLocaleTimeString(
+                    "uz-UZ",
+                    {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      timeZone: "Asia/Tashkent",
+                    },
+                  )}
+                </Text>
+              </View>
+              <View style={styles.transactionDetails}>
+                <Text style={[styles.transactionDetail, { fontSize: 18 }]}>
+                  {t("transactions.paymentMethod")}
+                </Text>
+                <Text style={[styles.transactionDetail, { fontSize: 18 }]}>
+                  {selectedTransaction?.paymentMethod === "naqd"
+                    ? t("transactions.cash")
+                    : t("transactions.card")}
+                </Text>
+              </View>
+              <View style={styles.transactionDetails}>
+                <Text style={[styles.transactionDetail, { fontSize: 18 }]}>
+                  {t("reports.soldBy")}
+                </Text>
+                <Text style={[styles.transactionDetail, { fontSize: 18 }]}>
+                  {selectedTransaction?.soldBy?.name}
+                </Text>
+              </View>
+            </View>
+
+            {/* Products */}
+            <ScrollView style={{ maxHeight: 400 }} nestedScrollEnabled>
+              {selectedTransaction?.products?.map((p, i) => (
+                <View key={i}>
+                  <View style={styles.expandedProduct}>
+                    <View style={styles.transactionHeader}>
+                      <Text style={styles.expandedName}>{p.name}</Text>
+                      <Text
+                        style={[
+                          styles.transactionDetail,
+                          { color: Colors.primary, fontSize: 18 },
+                        ]}
+                      >
+                        {p.totalAmount?.toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={styles.transactionDetails}>
+                      <Text style={styles.transactionDetail}>{p.model}</Text>
+                      {isOwner && (
                         <Text
                           style={[
                             styles.transactionDetail,
-                            { color: Colors.primary },
+                            { color: Colors.success, fontSize: 18 },
                           ]}
                         >
-                          {p.totalAmount?.toLocaleString()} UZS
+                          +{p.totalProfit?.toLocaleString()}
                         </Text>
-                      </View>
-                      <View style={styles.transactionDetails}>
-                        <Text style={styles.transactionDetail}>{p.model}</Text>
-                        {isOwner && (
-                          <Text
-                            style={[
-                              styles.transactionDetail,
-                              { color: Colors.success },
-                            ]}
-                          >
-                            +{p.totalProfit?.toLocaleString()} UZS
-                          </Text>
-                        )}
-                      </View>
-                      <View style={styles.transactionDetails}>
-                        <Text style={styles.transactionDetail}>
-                          {p.quantity} x {p.priceAtSale?.toLocaleString()}
-                        </Text>
-                      </View>
+                      )}
                     </View>
-                  ))}
+                    <Text style={styles.transactionDetail}>
+                      {p.quantity} x {p.priceAtSale?.toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            {/* Totals */}
+            <View
+              style={{
+                borderTopWidth: 1,
+                borderTopColor: Colors.border,
+                marginTop: 12,
+                paddingTop: 12,
+                gap: 6,
+              }}
+            >
+              <View style={styles.transactionDetails}>
+                <Text style={styles.transactionDetail}>
+                  {t("common.quantity")}
+                </Text>
+                <Text style={styles.transactionDetail}>
+                  {selectedTransaction?.totalQuantity}
+                </Text>
+              </View>
+
+              <View style={styles.transactionDetails}>
+                <Text style={styles.transactionDetail}>
+                  {t("transactions.priceType")}
+                </Text>
+                <Text style={styles.transactionDetail}>
+                  {selectedTransaction?.priceType === "wholesale"
+                    ? t("transactions.bulk")
+                    : t("transactions.retail")}
+                </Text>
+              </View>
+
+              <View style={styles.transactionDetails}>
+                <Text style={styles.transactionDetail}>
+                  {t("transactions.saleSource")}
+                </Text>
+                <Text style={styles.transactionDetail}>
+                  {selectedTransaction?.saleSource === "store"
+                    ? t("stores.store")
+                    : t("warehouse.warehouse")}
+                </Text>
+              </View>
+
+              {/* Divider */}
+              <View
+                style={{
+                  height: 1,
+                  backgroundColor: Colors.border,
+                  marginVertical: 4,
+                }}
+              />
+
+              <View style={styles.transactionDetails}>
+                <Text style={[styles.transactionDetail, { fontWeight: "600" }]}>
+                  {t("transactions.subtotal")}
+                </Text>
+                <Text style={[styles.transactionDetail, { fontWeight: "600" }]}>
+                  {selectedTransaction?.totalAmount?.toLocaleString()}
+                </Text>
+              </View>
+
+              {selectedTransaction?.discount > 0 && (
+                <View style={styles.transactionDetails}>
+                  <Text
+                    style={[styles.transactionDetail, { color: Colors.error }]}
+                  >
+                    {t("transactions.discount")}
+                  </Text>
+                  <Text
+                    style={[styles.transactionDetail, { color: Colors.error }]}
+                  >
+                    -{selectedTransaction?.discount?.toLocaleString()}
+                  </Text>
                 </View>
               )}
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
+
+              {selectedTransaction?.debt > 0 && (
+                <View style={styles.transactionDetails}>
+                  <Text
+                    style={[styles.transactionDetail, { color: Colors.error }]}
+                  >
+                    {t("clients.debt")}
+                  </Text>
+                  <Text
+                    style={[styles.transactionDetail, { color: Colors.error }]}
+                  >
+                    -{selectedTransaction?.debt?.toLocaleString()}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.transactionDetails}>
+                <Text
+                  style={[
+                    styles.transactionDetail,
+                    { fontWeight: "700", color: Colors.text },
+                  ]}
+                >
+                  {t("transactions.paidAmount")}
+                </Text>
+                <Text
+                  style={[
+                    styles.transactionDetail,
+                    { color: Colors.primary, fontWeight: "700" },
+                  ]}
+                >
+                  {selectedTransaction?.paidAmount?.toLocaleString()}
+                </Text>
+              </View>
+
+              {selectedTransaction?.client && (
+                <>
+                  <View
+                    style={{
+                      height: 1,
+                      backgroundColor: Colors.border,
+                      marginVertical: 4,
+                    }}
+                  />
+                  <View style={styles.transactionDetails}>
+                    <Text style={styles.transactionDetail}>
+                      {t("clients.title")}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.transactionDetail,
+                        { color: Colors.primary },
+                      ]}
+                    >
+                      {selectedTransaction?.client?.name || t("clients.title")}
+                    </Text>
+                  </View>
+                </>
+              )}
+
+              {isOwner && (
+                <>
+                  <View
+                    style={{
+                      height: 1,
+                      backgroundColor: Colors.border,
+                      marginVertical: 4,
+                    }}
+                  />
+                  <View style={styles.transactionDetails}>
+                    <Text
+                      style={[styles.transactionDetail, { fontWeight: "600" }]}
+                    >
+                      {t("reports.totalRevenue")}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.transactionDetail,
+                        { color: Colors.success, fontWeight: "600" },
+                      ]}
+                    >
+                      +{selectedTransaction?.totalProfit?.toLocaleString()}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -412,7 +696,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 12,
   },
   dateInput: {
     backgroundColor: Colors.background,
@@ -425,6 +708,11 @@ const styles = StyleSheet.create({
   dateSeparator: {
     color: Colors.textLight,
     fontSize: 16,
+  },
+  outletTitle: {
+    color: Colors.textLight,
+    fontSize: 16,
+    padding: 10,
   },
   outletScroll: { marginBottom: 12 },
   chip: {
@@ -441,6 +729,9 @@ const styles = StyleSheet.create({
   chipTextActive: { color: Colors.white },
   filterBtns: { flexDirection: "row", gap: 8 },
   filterBtn: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
     flex: 1,
     backgroundColor: Colors.primary,
     borderRadius: 8,
@@ -449,6 +740,9 @@ const styles = StyleSheet.create({
   },
   filterBtnText: { color: Colors.white, fontWeight: "600" },
   clearBtn: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 5,
     flex: 1,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -456,7 +750,7 @@ const styles = StyleSheet.create({
     padding: 10,
     alignItems: "center",
   },
-  clearBtnText: { color: Colors.textLight, fontWeight: "600" },
+  clearBtnText: { color: Colors.error, fontWeight: "600" },
   resultRow: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -472,10 +766,10 @@ const styles = StyleSheet.create({
   transactionCard: {
     backgroundColor: Colors.white,
     borderRadius: 12,
+    borderColor: Colors.border,
     padding: 16,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   transactionHeader: {
     flexDirection: "row",
@@ -494,16 +788,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   transactionDetail: { fontSize: 13, color: Colors.textLight },
-  expandedProducts: {
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    paddingTop: 12,
-  },
   expandedProduct: {
     paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    marginBottom: 4,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    borderColor: Colors.border,
   },
   expandedName: { fontSize: 14, fontWeight: "600", color: Colors.text },
   dateSection: { marginBottom: 12 },
@@ -526,4 +817,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   dateDash: { color: Colors.textLight, marginHorizontal: 4, fontSize: 16 },
+
+  centeredOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 15,
+  },
+  centeredModal: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    padding: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  centeredTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.text,
+  },
+  centeredSubtitle: {
+    fontSize: 17,
+    color: Colors.text,
+  },
+  centeredBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.error,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  centeredBtnText: {
+    color: Colors.white,
+  },
 });

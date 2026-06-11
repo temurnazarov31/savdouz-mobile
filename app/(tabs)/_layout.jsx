@@ -1,4 +1,5 @@
-import { Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { Tabs } from "expo-router";
 import { useTranslation } from "react-i18next";
 import Colors from "../../constants/colors";
@@ -14,6 +15,7 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: Colors.white,
           borderTopColor: Colors.border,
+          borderRadius: 16,
         },
       }}
     >
@@ -45,20 +47,24 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="warehouse"
+        name="deliveries"
         options={{
-          title: t("tabs.warehouse"),
+          title: t("tabs.deliveries"),
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="business-outline" color={color} size={size} />
+            <MaterialCommunityIcons
+              name="truck-outline"
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="clients"
         options={{
-          title: t("tabs.profile"),
+          title: "Mijozlar",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" color={color} size={size} />
+            <Feather name="users" size={size} color={color} />
           ),
         }}
       />

@@ -1,11 +1,15 @@
+import {
+  Feather,
+  Ionicons,
+  MaterialCommunityIcons,
+  MaterialIcons,
+} from "@expo/vector-icons";
 import { CameraView } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   ScrollView,
@@ -16,9 +20,16 @@ import {
   View,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
+import { SkeletonList } from "../../components/skeleton";
 import Colors from "../../constants/colors";
 import useRole from "../../hooks/useRole";
-import { del, get, patch, post } from "../../services/api";
+import {
+  del,
+  getCached,
+  invalidateCache,
+  patch,
+  post,
+} from "../../services/api";
 import useAuthStore from "../../store/authStore";
 
 export default function Products() {
@@ -28,15 +39,15 @@ export default function Products() {
   const [modalVisible, setModalVisible] = useState(false);
   const [name, setName] = useState("");
   const [model, setModel] = useState("");
-  const [initialPrice, setInitialPrice] = useState("");
-  const [bulkPrice, setBulkPrice] = useState("");
+  const [costPrice, setCostPrice] = useState("");
+  const [wholesalePrice, setWholesalePrice] = useState("");
   const [retailPrice, setRetailPrice] = useState("");
   const [updateModalVisible, setUpdateModalVisible] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [updateName, setUpdateName] = useState("");
   const [updateModel, setUpdateModel] = useState("");
-  const [updateInitialPrice, setUpdateInitialPrice] = useState("");
-  const [updateBulkPrice, setUpdateBulkPrice] = useState("");
+  const [updateCostPrice, setUpdateCostPrice] = useState("");
+  const [updateWholesalePrice, setUpdateWholesalePrice] = useState("");
   const [updateRetailPrice, setUpdateRetailPrice] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [qrModal, setQrModal] = useState(false);
@@ -44,10 +55,17 @@ export default function Products() {
   const [barcode, setBarcode] = useState("");
   const [updateBarcode, setUpdateBarcode] = useState("");
   const [barcodeScanModal, setBarcodeScanModal] = useState(false);
-  const [scanTarget, setScanTarget] = useState(null); // 'create' or 'update'
+  const [scanTarget, setScanTarget] = useState(null);
   const [barcodeScanned, setBarcodeScanned] = useState(false);
+  const [brand, setBrand] = useState("");
+  const [updateBrand, setUpdateBrand] = useState("");
 
-  // Worker's permissions and role separation
+  // Modal states
+  const [successModal, setSuccessModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
+
   const { isOwner, role } = useRole();
   const isUser = role === "user";
   const { t } = useTranslation();
@@ -61,12 +79,12 @@ export default function Products() {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const data = await get("/products");
+      const data = await getCached("/products"); // ✅ cache
       if (data?.data?.products) {
         setProducts(data.data.products);
       }
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     } finally {
       setLoading(false);
     }
@@ -81,56 +99,40 @@ export default function Products() {
       await post("/products", {
         name,
         model,
+        brand: brand || undefined,
         pricing: {
-          initialPrice: Number(initialPrice),
-          bulkPrice: Number(bulkPrice),
+          costPrice: Number(costPrice),
+          wholesalePrice: Number(wholesalePrice),
           retailPrice: Number(retailPrice),
         },
         barcode: barcode || undefined,
       });
+      invalidateCache("/products"); // ✅ clear cache
       setModalVisible(false);
       setName("");
       setModel("");
-      setInitialPrice("");
-      setBulkPrice("");
+      setCostPrice("");
+      setWholesalePrice("");
       setRetailPrice("");
-      fetchProducts();
+      setBarcode("");
+      setBrand("");
+      setSuccessModal(true);
+      fetchProducts(); // refetch fresh
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
-  };
-
-  const handleDeleteProduct = (id) => {
-    Alert.alert(
-      t("products.deleteProduct"),
-      t("products.deleteProductConfirm"),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t("common.delete"),
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await del(`/products/${id}`);
-              setProducts((prev) => prev.filter((p) => p._id !== id));
-            } catch (err) {
-              Alert.alert("Error", err.message);
-            }
-          },
-        },
-      ],
-    );
   };
 
   const handleOpenUpdate = (product) => {
     setSelectedProduct(product);
     setUpdateName(product.name);
     setUpdateModel(product.model);
-    setUpdateInitialPrice(String(product.pricing?.initialPrice || ""));
-    setUpdateBulkPrice(String(product.pricing?.bulkPrice || ""));
+    setUpdateCostPrice(String(product.pricing?.costPrice || ""));
+    setUpdateWholesalePrice(String(product.pricing?.wholesalePrice || ""));
     setUpdateRetailPrice(String(product.pricing?.retailPrice || ""));
     setUpdateModalVisible(true);
     setUpdateBarcode(product.barcode || "");
+    setUpdateBrand(product.brand || "");
   };
 
   const handleUpdateProduct = async () => {
@@ -138,18 +140,26 @@ export default function Products() {
       await patch(`/products/${selectedProduct._id}`, {
         name: updateName,
         model: updateModel,
+        brand: updateBrand || undefined,
         pricing: {
-          initialPrice: Number(updateInitialPrice),
-          bulkPrice: Number(updateBulkPrice),
+          costPrice: Number(updateCostPrice),
+          wholesalePrice: Number(updateWholesalePrice),
           retailPrice: Number(updateRetailPrice),
         },
         barcode: updateBarcode || undefined,
       });
+      invalidateCache("/products"); // ✅ clear cache
       setUpdateModalVisible(false);
-      fetchProducts();
+      setSuccessModal(true);
+      fetchProducts(); // refetch fresh
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
+  };
+
+  const handleDeleteProduct = (id) => {
+    setDeleteTargetId(id);
+    setDeleteModal(true);
   };
 
   const handleExportPDF = async () => {
@@ -157,26 +167,21 @@ export default function Products() {
       const fileUri =
         (FileSystem.documentDirectory || FileSystem.cacheDirectory) +
         "barcodes.pdf";
-
       const response = await FileSystem.downloadAsync(
         `${process.env.EXPO_PUBLIC_API_URL}/products/export-barcodes`,
         fileUri,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       await Sharing.shareAsync(response.uri);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
   };
 
   const handleExportSinglePDF = async (product) => {
     try {
       if (!product?._id) {
-        Alert.alert("Error", t("products.notSelected"));
+        setErrorMessage(t("products.notSelected"));
         return;
       }
       const fileUri =
@@ -189,8 +194,21 @@ export default function Products() {
       );
       await Sharing.shareAsync(response.uri);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
+  };
+
+  const generateBarcode = () => {
+    // EAN-13 format: 12 random digits + check digit
+    const digits = Array.from({ length: 12 }, () =>
+      Math.floor(Math.random() * 10),
+    );
+    const checkDigit =
+      (10 -
+        (digits.reduce((sum, d, i) => sum + d * (i % 2 === 0 ? 1 : 3), 0) %
+          10)) %
+      10;
+    return [...digits, checkDigit].join("");
   };
 
   const renderProduct = ({ item }) => (
@@ -199,6 +217,7 @@ export default function Products() {
         <View>
           <Text style={styles.cardTitle}>{item.name}</Text>
           <Text style={styles.cardSubtitle}>Model: {item.model}</Text>
+          {item.brand && <Text style={styles.cardSubtitle}>{item.brand}</Text>}
         </View>
         <View style={styles.cardActions}>
           <TouchableOpacity
@@ -208,37 +227,47 @@ export default function Products() {
               setQrModal(true);
             }}
           >
-            <Text style={styles.editText}>📷 QR</Text>
+            <Ionicons name="qr-code-outline" size={20} color={Colors.primary} />
           </TouchableOpacity>
           {(isOwner || isUser) && (
             <View style={styles.cardActions}>
               <TouchableOpacity onPress={() => handleOpenUpdate(item)}>
-                <Text style={styles.editText}>{t("common.edit")}</Text>
+                <MaterialCommunityIcons
+                  name="square-edit-outline"
+                  size={20}
+                  color={Colors.primary}
+                />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => handleDeleteProduct(item._id)}>
-                <Text style={styles.deleteText}>{t("common.delete")}</Text>
+                <MaterialCommunityIcons
+                  name="delete"
+                  size={20}
+                  color={Colors.error}
+                />
               </TouchableOpacity>
             </View>
           )}
         </View>
       </View>
       <View style={styles.pricing}>
-        <View style={styles.priceItem}>
-          <Text style={styles.priceLabel}>{t("products.initialPrice")}</Text>
-          <Text style={styles.priceValue}>
-            {item.pricing?.initialPrice.toLocaleString()} UZS
-          </Text>
-        </View>
+        {isOwner && (
+          <View style={styles.priceItem}>
+            <Text style={styles.priceLabel}>{t("products.initialPrice")}</Text>
+            <Text style={styles.priceValue}>
+              {item.pricing?.costPrice.toLocaleString()}
+            </Text>
+          </View>
+        )}
         <View style={styles.priceItem}>
           <Text style={styles.priceLabel}>{t("transactions.bulk")}</Text>
           <Text style={styles.priceValue}>
-            {item.pricing?.bulkPrice.toLocaleString()} UZS
+            {item.pricing?.wholesalePrice.toLocaleString()}
           </Text>
         </View>
         <View style={styles.priceItem}>
           <Text style={styles.priceLabel}>{t("transactions.retail")}</Text>
           <Text style={styles.priceValue}>
-            {item.pricing?.retailPrice.toLocaleString()} UZS
+            {item.pricing?.retailPrice.toLocaleString()}
           </Text>
         </View>
       </View>
@@ -249,14 +278,30 @@ export default function Products() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{t("products.title")}</Text>
-        <TouchableOpacity onPress={handleExportPDF}>
-          <Text style={{ color: Colors.primary, fontWeight: "600" }}>
-            {t("products.exportPDF")}
-          </Text>
-        </TouchableOpacity>
+        {isOwner && (
+          <TouchableOpacity
+            onPress={handleExportPDF}
+            style={{ flexDirection: "row", gap: 4 }}
+          >
+            <Text style={{ color: Colors.primary, fontWeight: "600" }}>
+              PDF
+            </Text>
+            <MaterialCommunityIcons
+              name="export-variant"
+              size={17}
+              color={Colors.primary}
+            />
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={styles.searchContainer}>
+        <Ionicons
+          name="search"
+          size={24}
+          color="#999"
+          style={{ marginTop: 10 }}
+        />
         <TextInput
           style={styles.searchInput}
           placeholder={t("products.searchProduct")}
@@ -267,11 +312,9 @@ export default function Products() {
       </View>
 
       {loading ? (
-        <ActivityIndicator
-          size="large"
-          color={Colors.primary}
-          style={styles.loader}
-        />
+        <View style={{ padding: 16 }}>
+          <SkeletonList count={6} type="product" />
+        </View>
       ) : (
         <FlatList
           data={filteredProducts}
@@ -293,10 +336,12 @@ export default function Products() {
           style={styles.fab}
           onPress={() => setModalVisible(true)}
         >
-          <Text style={styles.fabText}>+ {t("products.addProduct")}</Text>
+          <Ionicons name="add" color={Colors.white} style={{ fontSize: 20 }} />
+          <Text style={styles.fabText}>{t("products.addProduct")}</Text>
         </TouchableOpacity>
       )}
 
+      {/* Update Modal */}
       <Modal visible={updateModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <ScrollView>
@@ -304,13 +349,20 @@ export default function Products() {
               <Text style={styles.modalTitle}>
                 {t("products.updateProduct")}
               </Text>
-
               <TextInput
                 style={styles.input}
                 placeholder={t("products.productName")}
                 placeholderTextColor="#999"
                 value={updateName}
                 onChangeText={setUpdateName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder={t("products.brand") || "Brand"}
+                placeholderTextColor="#999"
+                value={updateBrand}
+                onChangeText={setUpdateBrand}
+                autoCapitalize="characters"
               />
               <TextInput
                 style={styles.input}
@@ -323,16 +375,16 @@ export default function Products() {
                 style={styles.input}
                 placeholder={t("products.initialPrice")}
                 placeholderTextColor="#999"
-                value={updateInitialPrice}
-                onChangeText={setUpdateInitialPrice}
+                value={updateCostPrice}
+                onChangeText={setUpdateCostPrice}
                 keyboardType="numeric"
               />
               <TextInput
                 style={styles.input}
                 placeholder={t("products.bulkPrice")}
                 placeholderTextColor="#999"
-                value={updateBulkPrice}
-                onChangeText={setUpdateBulkPrice}
+                value={updateWholesalePrice}
+                onChangeText={setUpdateWholesalePrice}
                 keyboardType="numeric"
               />
               <TextInput
@@ -343,15 +395,34 @@ export default function Products() {
                 onChangeText={setUpdateRetailPrice}
                 keyboardType="numeric"
               />
-
               <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
                 <TextInput
-                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  style={styles.barcodeInput}
                   placeholder={t("products.barcode")}
                   placeholderTextColor="#999"
                   value={updateBarcode}
                   onChangeText={setUpdateBarcode}
                 />
+                {/* Generate button — only show when no barcode */}
+                {!updateBarcode && (
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      {
+                        marginBottom: 0,
+                        paddingHorizontal: 16,
+                        backgroundColor: Colors.success,
+                      },
+                    ]}
+                    onPress={() => setUpdateBarcode(generateBarcode())}
+                  >
+                    <MaterialCommunityIcons
+                      name="barcode"
+                      size={24}
+                      color={Colors.white}
+                    />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={[
                     styles.button,
@@ -362,17 +433,19 @@ export default function Products() {
                     setBarcodeScanModal(true);
                   }}
                 >
-                  <Text style={styles.buttonText}>📷 QR</Text>
+                  <MaterialIcons
+                    name="qr-code-scanner"
+                    size={24}
+                    color={Colors.white}
+                  />
                 </TouchableOpacity>
               </View>
-
               <TouchableOpacity
                 style={styles.button}
                 onPress={handleUpdateProduct}
               >
                 <Text style={styles.buttonText}>{t("common.update")}</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setUpdateModalVisible(false)}
@@ -384,18 +457,26 @@ export default function Products() {
         </View>
       </Modal>
 
+      {/* Create Modal */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <ScrollView>
             <View style={styles.modal}>
               <Text style={styles.modalTitle}>{t("products.addProduct")}</Text>
-
               <TextInput
                 style={styles.input}
                 placeholder={t("products.productName")}
                 placeholderTextColor="#999"
                 value={name}
                 onChangeText={setName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder={t("products.brand") || "Brand"}
+                placeholderTextColor="#999"
+                value={brand}
+                onChangeText={setBrand}
+                autoCapitalize="characters"
               />
               <TextInput
                 style={styles.input}
@@ -408,16 +489,16 @@ export default function Products() {
                 style={styles.input}
                 placeholder={t("products.initialPrice")}
                 placeholderTextColor="#999"
-                value={initialPrice}
-                onChangeText={setInitialPrice}
+                value={costPrice}
+                onChangeText={setCostPrice}
                 keyboardType="numeric"
               />
               <TextInput
                 style={styles.input}
                 placeholder={t("products.bulkPrice")}
                 placeholderTextColor="#999"
-                value={bulkPrice}
-                onChangeText={setBulkPrice}
+                value={wholesalePrice}
+                onChangeText={setWholesalePrice}
                 keyboardType="numeric"
               />
               <TextInput
@@ -436,6 +517,26 @@ export default function Products() {
                   value={barcode}
                   onChangeText={setBarcode}
                 />
+                {/* Generate button — only show when no barcode */}
+                {!barcode && (
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      {
+                        marginBottom: 0,
+                        paddingHorizontal: 16,
+                        backgroundColor: Colors.success,
+                      },
+                    ]}
+                    onPress={() => setBarcode(generateBarcode())}
+                  >
+                    <MaterialCommunityIcons
+                      name="barcode"
+                      size={24}
+                      color={Colors.white}
+                    />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={[
                     styles.button,
@@ -446,17 +547,19 @@ export default function Products() {
                     setBarcodeScanModal(true);
                   }}
                 >
-                  <Text style={styles.buttonText}>📷 QR</Text>
+                  <MaterialIcons
+                    name="qr-code-scanner"
+                    size={24}
+                    color={Colors.white}
+                  />
                 </TouchableOpacity>
               </View>
-
               <TouchableOpacity
                 style={styles.button}
                 onPress={handleCreateProduct}
               >
                 <Text style={styles.buttonText}>{t("common.create")}</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setModalVisible(false)}
@@ -467,6 +570,8 @@ export default function Products() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* QR Modal */}
       <Modal visible={qrModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
@@ -495,8 +600,13 @@ export default function Products() {
               style={styles.button}
               onPress={() => handleExportSinglePDF(selectedQrProduct)}
             >
+              <MaterialCommunityIcons
+                name="export-variant"
+                size={17}
+                color={Colors.white}
+              />
               <Text style={styles.buttonText}>
-                🖨 {t("products.exportBarcode")}
+                {t("products.barcodePrint")}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -508,6 +618,8 @@ export default function Products() {
           </View>
         </View>
       </Modal>
+
+      {/* Barcode Scanner Modal */}
       <Modal visible={barcodeScanModal} animationType="slide">
         <View style={{ flex: 1, backgroundColor: "#000" }}>
           <View
@@ -527,11 +639,7 @@ export default function Products() {
                 setBarcodeScanned(false);
               }}
             >
-              <Text
-                style={{ color: Colors.error, fontWeight: "600", fontSize: 16 }}
-              >
-                ✕ {t("common.close")}
-              </Text>
+              <Feather name="x" size={24} color={Colors.error} />
             </TouchableOpacity>
           </View>
           <CameraView
@@ -565,6 +673,82 @@ export default function Products() {
           />
         </View>
       </Modal>
+
+      {/* Success Modal */}
+      <Modal visible={successModal} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons
+              name="checkmark-circle"
+              size={60}
+              color={Colors.success}
+            />
+            <Text style={styles.modalTitle}>{t("common.success")}</Text>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => setSuccessModal(false)}
+            >
+              <Text style={styles.buttonText}>{t("common.ok")}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal visible={!!errorMessage} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="close-circle" size={60} color={Colors.error} />
+            <Text style={styles.modalTitle}>{t("common.errorTitle")}</Text>
+            <Text style={styles.modalSubtitle}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => setErrorMessage(null)}
+            >
+              <Text style={styles.buttonText}>{t("common.ok")}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Confirm Modal */}
+      <Modal visible={deleteModal} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="warning" size={60} color={Colors.error} />
+            <Text style={styles.modalTitle}>{t("products.deleteProduct")}</Text>
+            <Text style={styles.modalSubtitle}>
+              {t("products.deleteProductConfirm")}
+            </Text>
+            <View style={{ flexDirection: "row-reverse" }}>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: Colors.error }]}
+                onPress={async () => {
+                  try {
+                    await del(`/products/${deleteTargetId}`);
+                    invalidateCache("/products");
+                    setProducts((prev) =>
+                      prev.filter((p) => p._id !== deleteTargetId),
+                    );
+                    setDeleteModal(false);
+                  } catch (err) {
+                    setDeleteModal(false);
+                    setErrorMessage(err.message);
+                  }
+                }}
+              >
+                <Text style={styles.buttonText}>{t("common.delete")}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setDeleteModal(false)}
+              >
+                <Text style={styles.cancelText}>{t("common.cancel")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -580,6 +764,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   headerTitle: {
     fontSize: 24,
@@ -588,6 +775,7 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: 16,
+    paddingBottom: 70
   },
   card: {
     backgroundColor: Colors.white,
@@ -604,7 +792,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: "600",
     color: Colors.text,
   },
@@ -613,15 +801,12 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
     marginTop: 2,
   },
-  deleteText: {
-    color: Colors.error,
-    fontSize: 14,
-  },
   pricing: {
     flexDirection: "row",
     justifyContent: "space-around",
-    backgroundColor: Colors.background,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
     padding: 12,
   },
   priceItem: {
@@ -633,7 +818,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   priceValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: Colors.text,
   },
@@ -654,6 +839,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     elevation: 4,
+    flexDirection: "row",
+    alignContent: "center",
+    gap: 8,
   },
   fabText: {
     color: Colors.white,
@@ -672,11 +860,28 @@ const styles = StyleSheet.create({
     padding: 24,
     marginTop: 100,
   },
+  centeredOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 15,
+  },
+  centeredModal: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    padding: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: "bold",
     color: Colors.text,
-    marginBottom: 16,
+  },
+  modalSubtitle: {
+    fontSize: 17,
+    color: Colors.text,
   },
   input: {
     backgroundColor: Colors.background,
@@ -687,12 +892,23 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 16,
   },
+  barcodeInput: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    padding: 16,
+    flex: 1,
+  },
   button: {
+    flexDirection: "row",
+    justifyContent: "center",
     backgroundColor: Colors.primary,
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
     marginBottom: 12,
+    gap: 5,
   },
   buttonText: {
     color: Colors.white,
@@ -709,32 +925,25 @@ const styles = StyleSheet.create({
   },
   cardActions: {
     flexDirection: "row",
-    gap: 12,
-  },
-  editText: {
-    color: Colors.primary,
-    fontSize: 14,
+    gap: 15,
   },
   searchContainer: {
-    padding: 16,
+    flexDirection: "row",
+    alignContent: "center",
     backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  searchInput: {
-    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 12,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    paddingLeft: 20,
+    marginTop: 10,
+    marginHorizontal: 16,
+  },
+  searchInput: {
     padding: 12,
     fontSize: 16,
   },
-  qrBtn: {
-    marginTop: 12,
-    padding: 10,
-    alignItems: "center",
-  },
-  qrBtnText: { color: Colors.primary, fontWeight: "600" },
   qrContainer: {
     alignItems: "center",
     padding: 24,

@@ -1,10 +1,16 @@
+import {
+  Ionicons,
+  MaterialCommunityIcons,
+  MaterialIcons,
+} from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
-  Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,18 +19,17 @@ import {
   View,
 } from "react-native";
 import ProductScanner from "../../components/productScanner";
+import { SkeletonBox } from "../../components/skeleton";
 import Colors from "../../constants/colors";
 import useRole from "../../hooks/useRole";
-import { get, post } from "../../services/api";
+import { get, getCached, invalidateCache, post } from "../../services/api";
 
 export default function NewTransaction({ onClose }) {
   const [stores, setStores] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
-  const [selectedStore, setSelectedStore] = useState(null);
-  const [selectedWarehouse, setSelectedWarehouse] = useState(null);
+  const [selectedOutlet, setSelectedOutlet] = useState(null);
   const [saleSource, setSaleSource] = useState("store");
-  const [storeProducts, setStoreProducts] = useState([]);
-  const [whProducts, setWhProducts] = useState([]);
+  const [outletProducts, setOutletProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
   const [storesLoading, setStoresLoading] = useState(true);
@@ -32,11 +37,29 @@ export default function NewTransaction({ onClose }) {
   const [paymentMethod, setPaymentMethod] = useState("naqd");
   const [scannerVisible, setScannerVisible] = useState(false);
   const [priceType, setPriceType] = useState("retail");
+  const [discount, setDiscount] = useState("");
+
   // Permissions
   const { isOwner, role } = useRole();
   const isUser = role === "user";
   const isWorker = role === "worker";
   const { t } = useTranslation();
+
+  // Clients
+  const [clients, setClients] = useState([]);
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
+  const [newClientNote, setNewClientNote] = useState("");
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
+  const [debtAmount, setDebtAmount] = useState("");
+  const [addDebt, setAddDebt] = useState(false);
+  const [clientMode, setClientMode] = useState("none");
+
+  const [successModal, setSuccessModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  const [isMaxDebt, setIsMaxDebt] = useState(false);
 
   const handleClose = () => {
     if (onClose) onClose();
@@ -48,72 +71,143 @@ export default function NewTransaction({ onClose }) {
       setStoresLoading(true);
 
       if (isWorker) {
-        const store = await get("/stores/my-store").catch(() => null);
-        const warehouse = await get("/warehouses/my-warehouse").catch(
-          () => null,
-        );
-
-        const outletId =
-          store.data?.store?._id || warehouse.data?.warehouse?._id;
-
-        setSelectedStore(store.data?.store);
-        setSelectedWarehouse(warehouse.data?.warehouse);
-        if (outletId) {
-          fetchInventory(outletId);
-        }
+        const outlet = await getCached("/outlets/my-outlet");
+        setSelectedOutlet(outlet?.data?.outlet);
+        fetchInventory(outlet?.data?.outlet?._id);
         return;
       }
 
-      const store = await get("/stores").catch(() => null);
-      setStores(store.data?.stores || []);
-      const warehouse = await get("/warehouses").catch(() => null);
-      setWarehouses(warehouse.data?.warehouses || []);
+      const [storeData, warehouseData] = await Promise.all([
+        getCached("/outlets?type=store"),
+        getCached("/outlets?type=warehouse"),
+      ]);
+      setStores(storeData.data?.outlets || []);
+      setWarehouses(warehouseData.data?.outlets || []);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     } finally {
       setStoresLoading(false);
     }
   };
 
-  const fetchInventory = async (storeId) => {
+  const fetchInventory = async (outletId) => {
     try {
-      const data = await get(`/stores/products/${storeId}`);
-      const inventory = data.data.inventory;
-      setStoreProducts(
+      // ❌ don't cache — stock changes every sale
+      const data = await get(`/outlets/products/${outletId}`);
+      const inventory = data.data?.products;
+      setOutletProducts(
         Array.isArray(inventory) ? inventory : inventory ? [inventory] : [],
       );
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
   };
 
-  const fetchWarehouseInventory = async (warehouseId) => {
+  const fetchClients = async () => {
     try {
-      const data = await get(`/warehouses/products/warehouse/${warehouseId}`);
-      setWhProducts(data.data.whProduct || []);
+      const data = await getCached("/clients?sort=-debt");
+      setClients(data.data?.clients || []);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
   };
 
   useEffect(() => {
     fetchOultets();
+    fetchClients();
   }, []);
 
-  const handleSelectStore = (store) => {
-    setSelectedStore(store);
+  const handleSelectOutlet = (outlet) => {
+    setSelectedOutlet(outlet);
     setCart([]);
-    setStoreProducts([]);
-    fetchInventory(store._id);
+    setOutletProducts([]);
+    fetchInventory(outlet._id);
   };
 
-  const handleSelectWarehouse = (warehouse) => {
-    setSelectedWarehouse(warehouse);
-    setCart([]);
-    setWhProducts([]);
-    fetchWarehouseInventory(warehouse._id);
+  const handleCreateTransaction = async () => {
+    const invalidItems = cart.filter(
+      (item) => !item.quantity || Number(item.quantity) < 1,
+    );
+    if (invalidItems.length > 0) {
+      setErrorMessage(
+        `${t("transactions.validQuantity")} ${invalidItems.map((i) => i.name).join(", ")}`,
+      );
+      return;
+    }
+    if (saleSource === "store" && !selectedOutlet) {
+      setErrorMessage(t("stores.selectStore"));
+      return;
+    }
+    if (cart.length === 0) {
+      setErrorMessage(t("transactions.validWarehouse"));
+      return;
+    }
+
+    const raw = cart.reduce((sum, item) => {
+      const price =
+        item.priceType === "wholesale"
+          ? (item.pricing?.wholesalePrice ?? 0)
+          : (item.pricing?.retailPrice ?? 0);
+      return sum + price * item.quantity;
+    }, 0);
+    const maxDiscount = raw - getCostTotal();
+
+    if (discount && Number(discount) > maxDiscount) {
+      setErrorMessage(
+        `${t("transactions.discountTooHigh")} ${maxDiscount.toLocaleString()} UZS`,
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const productsToSend = cart.map((item) => ({
+        productId: item.product?._id || item.product,
+        quantity: item.quantity,
+      }));
+
+      const clientId =
+        clientMode === "existing" ? selectedClient?._id : undefined;
+      const newClient =
+        clientMode === "new" && newClientName
+          ? {
+              name: newClientName,
+              phone: newClientPhone,
+              note: newClientNote,
+            }
+          : undefined;
+
+      await post("/transactions", {
+        outletId: selectedOutlet._id,
+        products: productsToSend,
+        saleSource,
+        priceType,
+        paymentMethod,
+        ...(clientId && { clientId }),
+        ...(newClient && { newClient }),
+        ...(addDebt && debtAmount && { debt: Number(debtAmount) }),
+        ...(discount && Number(discount) > 0 && { discount: Number(discount) }),
+      });
+
+      // Invalidate stock and client caches
+      invalidateCache(`/outlets/products/${selectedOutlet._id}`);
+      if (newClient?.name || (clientId && addDebt && debtAmount)) {
+        invalidateCache(
+          "/clients?sort=-debt",
+          "/clients?debtOnly=true&sort=-debt",
+        );
+      }
+
+      setSuccessModal(true);
+    } catch (err) {
+      setErrorMessage(err?.message || "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // rest unchanged
   const addToCart = (item) => {
     const existing = cart.find((c) => c._id === item._id);
     if (existing) {
@@ -147,434 +241,763 @@ export default function NewTransaction({ onClose }) {
   };
 
   const getCartTotal = () => {
-    return cart.reduce((sum, item) => {
+    const raw = cart.reduce((sum, item) => {
       const price =
-        item.priceType === "bulk"
-          ? item.pricing?.bulkPrice
-          : item.pricing?.retailPrice;
+        item.priceType === "wholesale"
+          ? (item.pricing?.wholesalePrice ?? 0)
+          : (item.pricing?.retailPrice ?? 0);
       return sum + price * item.quantity;
+    }, 0);
+
+    if (!discount || Number(discount) <= 0) return raw;
+    return Math.max(0, raw - Number(discount));
+  };
+
+  const getCostTotal = () => {
+    return cart.reduce((sum, item) => {
+      return sum + (item.pricing?.costPrice ?? 0) * item.quantity;
     }, 0);
   };
 
-  const handleCreateTransaction = async () => {
-    const invalidItems = cart.filter(
-      (item) => !item.quantity || Number(item.quantity) < 1,
-    );
-    if (invalidItems.length > 0) {
-      Alert.alert(
-        "Error",
-        `${t("transactions.validQuantity")} ${invalidItems.map((i) => i.name).join(", ")}`,
-      );
-      return;
+  useEffect(() => {
+    if (isMaxDebt) {
+      setDebtAmount(String(getCartTotal()));
     }
-    if (saleSource === "store" && !selectedStore) {
-      Alert.alert("Error", "Please select a store");
-      return;
-    }
-    if (saleSource === "warehouse" && !selectedWarehouse) {
-      Alert.alert("Error", t("transactions.validStore"));
-      return;
-    }
-    if (cart.length === 0) {
-      Alert.alert("Error", t("transactions.validWarehouse"));
-      return;
-    }
+  }, [discount, cart]);
 
-    try {
-      setLoading(true);
-
-      const productsToSend = cart.map((item) => ({
-        productId: item.product?._id || item.product,
-        quantity: item.quantity,
-      }));
-
-      await post("/transactions", {
-        outletId:
-          saleSource === "store" ? selectedStore._id : selectedWarehouse._id,
-        products: productsToSend,
-        saleSource,
-        priceType,
-        paymentMethod,
-      });
-
-      Alert.alert(t("common.success"), t("transactions.saleRecorded"), [
-        { text: "OK", onPress: handleClose },
-      ]);
-    } catch (err) {
-      Alert.alert("Error", err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const displayProducts = (
-    saleSource === "store" ? storeProducts : whProducts
-  ).filter(
+  const displayProducts = outletProducts.filter(
     (p) =>
       p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.model?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
-  if (storesLoading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
+  const discountWarning = () => {
+    if (!discount || Number(discount) <= 0) return null;
+    const raw = cart.reduce((sum, item) => {
+      const price =
+        item.priceType === "wholesale"
+          ? (item.pricing?.wholesalePrice ?? 0)
+          : (item.pricing?.retailPrice ?? 0);
+      return sum + price * item.quantity;
+    }, 0);
+    const maxDiscount = raw - getCostTotal();
+    if (Number(discount) > maxDiscount) {
+      return `Max: ${maxDiscount.toLocaleString()} UZS`;
+    }
+    return null;
+  };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleClose}>
-          <Text style={styles.back}>← {t("common.back")}</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {t("transactions.newTransaction")}
-        </Text>
-        <View />
-      </View>
-
-      {/* Step 1 - Sale Source */}
-      {isOwner && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {t("transactions.saleSource")}
-          </Text>
-          <View style={styles.row}>
-            <TouchableOpacity
-              style={[
-                styles.sourceButton,
-                saleSource === "store" && styles.sourceButtonActive,
-              ]}
-              onPress={() => {
-                setSaleSource("store");
-                setCart([]);
-                setSelectedWarehouse(null);
-              }}
-            >
-              <Text
-                style={[
-                  styles.sourceText,
-                  saleSource === "store" && styles.sourceTextActive,
-                ]}
-              >
-                🏪 {t("stores.store")}
-              </Text>
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: Colors.background }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          {/* Header */}
+          <View style={[styles.header, { paddingTop: 50 }]}>
+            <TouchableOpacity onPress={handleClose}>
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color="black"
+                style={styles.back}
+              />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.sourceButton,
-                saleSource === "warehouse" && styles.sourceButtonActive,
-              ]}
-              onPress={() => {
-                setSaleSource("warehouse");
-                setCart([]);
-                setSelectedStore(null);
-              }}
-            >
-              <Text
-                style={[
-                  styles.sourceText,
-                  saleSource === "warehouse" && styles.sourceTextActive,
-                ]}
-              >
-                🏪 {t("warehouse.warehouse")}
-              </Text>
-            </TouchableOpacity>
+            <Text style={styles.headerTitle}>
+              {t("transactions.newTransaction")}
+            </Text>
+            <View />
           </View>
-        </View>
-      )}
 
-      {/* Step 2 - Select Store or Warehouse */}
-      {isOwner && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {" "}
-            {saleSource === "store"
-              ? t("stores.selectStore")
-              : t("warehouse.selectWarehouse")}
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {(saleSource === "store" ? stores : warehouses).map((item) => (
-              <TouchableOpacity
-                key={item._id}
-                style={[
-                  styles.chip,
-                  (saleSource === "store" ? selectedStore : selectedWarehouse)
-                    ?._id === item._id && styles.chipActive,
-                ]}
-                onPress={() =>
-                  saleSource === "store"
-                    ? handleSelectStore(item)
-                    : handleSelectWarehouse(item)
-                }
-              >
-                <Text
+          {/* Step 1 - Sale Source */}
+          {isOwner && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {t("transactions.saleSource")}
+              </Text>
+              <View style={styles.row}>
+                <TouchableOpacity
                   style={[
-                    styles.chipText,
-                    (saleSource === "store" ? selectedStore : selectedWarehouse)
-                      ?._id === item._id && styles.chipTextActive,
+                    styles.sourceButton,
+                    saleSource === "store" && styles.sourceButtonActive,
                   ]}
+                  onPress={() => {
+                    setSaleSource("store");
+                    setCart([]);
+                    setSelectedOutlet(null);
+                  }}
                 >
-                  {item.name}
+                  <Ionicons
+                    name="storefront-sharp"
+                    size={16}
+                    style={[
+                      styles.sourceText,
+                      saleSource === "store" && styles.sourceTextActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.sourceText,
+                      saleSource === "store" && styles.sourceTextActive,
+                    ]}
+                  >
+                    {" "}
+                    {t("stores.store")}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.sourceButton,
+                    saleSource === "warehouse" && styles.sourceButtonActive,
+                  ]}
+                  onPress={() => {
+                    setSaleSource("warehouse");
+                    setCart([]);
+                    setSelectedOutlet(null);
+                  }}
+                >
+                  <MaterialIcons
+                    name="warehouse"
+                    size={20}
+                    style={[
+                      styles.sourceText,
+                      saleSource === "warehouse" && styles.sourceTextActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.sourceText,
+                      saleSource === "warehouse" && styles.sourceTextActive,
+                    ]}
+                  >
+                    {" "}
+                    {t("warehouse.warehouse")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Step 2 - Select Store or Warehouse */}
+          {isOwner && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {" "}
+                {saleSource === "store"
+                  ? t("stores.selectStore")
+                  : t("warehouse.selectWarehouse")}
+              </Text>
+              {storesLoading ? (
+                // ✅ skeleton for outlet chips
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <SkeletonBox width={80} height={36} borderRadius={20} />
+                  <SkeletonBox width={100} height={36} borderRadius={20} />
+                  <SkeletonBox width={90} height={36} borderRadius={20} />
+                </View>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {(saleSource === "store" ? stores : warehouses).map(
+                    (item) => (
+                      <TouchableOpacity
+                        key={item._id}
+                        style={[
+                          styles.chip,
+                          selectedOutlet?._id === item._id && styles.chipActive,
+                        ]}
+                        onPress={() => handleSelectOutlet(item)}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            selectedOutlet?._id === item._id &&
+                              styles.chipTextActive,
+                          ]}
+                        >
+                          {item.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ),
+                  )}
+                </ScrollView>
+              )}
+            </View>
+          )}
+
+          {/* Step 3 - Select Products & Quantity */}
+          {selectedOutlet && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {t("products.addProduct")}
+              </Text>
+              <View style={styles.searchRow}>
+                <View style={styles.searchContainer}>
+                  <Ionicons name="search" size={24} color="#999" />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder={t("common.searchProduct")}
+                    placeholderTextColor="#999"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={styles.scanBtn}
+                  onPress={() => setScannerVisible(true)}
+                >
+                  <MaterialIcons
+                    name="qr-code-scanner"
+                    size={24}
+                    style={styles.scanBtnText}
+                  />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={{ maxHeight: 400 }} nestedScrollEnabled>
+                {displayProducts.length === 0 ? (
+                  <Text style={styles.empty}>{t("products.emptyProduct")}</Text>
+                ) : (
+                  displayProducts.map((item) => {
+                    const cartItem = cart.find((c) => c._id === item._id);
+                    return (
+                      <View key={item._id} style={styles.productCard}>
+                        {/* Left - product info */}
+                        <View style={styles.productInfo}>
+                          <Text style={styles.productName}>{item.name}</Text>
+                          <Text style={styles.productModel}>
+                            Model: {item.model}
+                          </Text>
+                          <Text style={styles.productStock}>
+                            {t("products.inStock")}: {item.quantity}
+                          </Text>
+                        </View>
+
+                        {/* Right - actions */}
+                        <View style={{ alignItems: "flex-end", height: 110 }}>
+                          <Text style={styles.priceText}>
+                            {t("products.bulkFirstLetter")}:{" "}
+                            {item.pricing?.wholesalePrice?.toLocaleString()}
+                          </Text>
+                          <Text style={styles.priceText}>
+                            {t("products.retailFirstLetter")}:{" "}
+                            {item.pricing?.retailPrice?.toLocaleString()}
+                          </Text>
+                          {cartItem ? (
+                            <>
+                              <View style={styles.qtyControls}>
+                                <TouchableOpacity
+                                  style={styles.qtyBtn}
+                                  onPress={() =>
+                                    updateQuantity(
+                                      item._id,
+                                      cartItem.quantity - 1,
+                                    )
+                                  }
+                                >
+                                  <Text style={styles.qtyBtnText}>−</Text>
+                                </TouchableOpacity>
+                                <TextInput
+                                  style={styles.qtyInput}
+                                  value={String(cartItem.quantity)}
+                                  onChangeText={(val) =>
+                                    updateQuantity(item._id, Number(val) || 0)
+                                  }
+                                  keyboardType="numeric"
+                                />
+                                <TouchableOpacity
+                                  style={styles.qtyBtn}
+                                  onPress={() =>
+                                    updateQuantity(
+                                      item._id,
+                                      cartItem.quantity + 1,
+                                    )
+                                  }
+                                >
+                                  <Text style={styles.qtyBtnText}>+</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  onPress={() => removeFromCart(item._id)}
+                                  style={styles.removeFromCartBtn}
+                                >
+                                  <MaterialCommunityIcons
+                                    name="delete"
+                                    size={28}
+                                    color={Colors.error}
+                                  />
+                                </TouchableOpacity>
+                              </View>
+                            </>
+                          ) : (
+                            <>
+                              <TouchableOpacity
+                                style={styles.addBtn}
+                                onPress={() => addToCart(item)}
+                              >
+                                <MaterialIcons
+                                  name="add-shopping-cart"
+                                  size={20}
+                                  style={styles.addBtnText}
+                                />
+                              </TouchableOpacity>
+                            </>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          )}
+
+          {cart.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {t("transactions.priceType")}
+              </Text>
+              <View style={styles.row}>
+                <TouchableOpacity
+                  style={[
+                    styles.sourceButton,
+                    priceType === "wholesale" && styles.sourceButtonActive,
+                  ]}
+                  onPress={() => updateAllPriceTypes("wholesale")}
+                >
+                  <Text
+                    style={[
+                      styles.sourceText,
+                      priceType === "wholesale" && styles.sourceTextActive,
+                    ]}
+                  >
+                    {t("transactions.bulk")}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.sourceButton,
+                    priceType === "retail" && styles.sourceButtonActive,
+                  ]}
+                  onPress={() => updateAllPriceTypes("retail")}
+                >
+                  <Text
+                    style={[
+                      styles.sourceText,
+                      priceType === "retail" && styles.sourceTextActive,
+                    ]}
+                  >
+                    {t("transactions.retail")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Payment Method */}
+          {cart.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {t("transactions.paymentMethod")}
+              </Text>
+              <View style={styles.row}>
+                <TouchableOpacity
+                  style={[
+                    styles.sourceButton,
+                    paymentMethod === "naqd" && styles.sourceButtonActive,
+                  ]}
+                  onPress={() => setPaymentMethod("naqd")}
+                >
+                  <MaterialCommunityIcons
+                    name="cash-100"
+                    size={24}
+                    color="green"
+                    style={[
+                      paymentMethod === "naqd" && styles.sourceTextActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.sourceText,
+                      paymentMethod === "naqd" && styles.sourceTextActive,
+                    ]}
+                  >
+                    {t("transactions.cash")}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.sourceButton,
+                    paymentMethod === "karta" && styles.sourceButtonActive,
+                  ]}
+                  onPress={() => setPaymentMethod("karta")}
+                >
+                  <Ionicons
+                    name="card"
+                    size={24}
+                    style={[
+                      styles.sourceText,
+                      paymentMethod === "karta" && styles.sourceTextActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.sourceText,
+                      paymentMethod === "karta" && styles.sourceTextActive,
+                    ]}
+                  >
+                    {t("transactions.card")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Summary */}
+          {cart.length > 0 && (
+            <View style={styles.summaryCard}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={styles.summaryTitle}>
+                  {t("reports.summary")} |{" "}
+                  {priceType === "wholesale"
+                    ? t("transactions.bulk")
+                    : t("transactions.retail")}{" "}
+                  |{" "}
+                  {paymentMethod === "naqd"
+                    ? t("transactions.cash")
+                    : t("transactions.card")}
                 </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
 
-      {/* Step 3 - Select Products & Quantity */}
-      {(selectedStore || selectedWarehouse) && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("products.addProduct")}</Text>
-          <View style={styles.searchRow}>
-            <TextInput
-              style={styles.input}
-              placeholder={t("common.searchProduct")}
-  placeholderTextColor="#999"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            <TouchableOpacity
-              style={styles.scanBtn}
-              onPress={() => setScannerVisible(true)}
-            >
-              <Text style={styles.scanBtnText}>QR Scan</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={{ maxHeight: 400 }} nestedScrollEnabled>
-            {displayProducts.length === 0 ? (
-              <Text style={styles.empty}>{t("products.emptyProduct")}</Text>
-            ) : (
-              displayProducts.map((item) => {
-                const cartItem = cart.find((c) => c._id === item._id);
-                return (
-                  <View key={item._id} style={styles.productCard}>
-                    {/* Left - product info */}
-                    <View style={styles.productInfo}>
-                      <Text style={styles.productName}>{item.name}</Text>
-                      <Text style={styles.productModel}>
-                        Model: {item.model}
+                {/* Debt adder funtion */}
+                <TouchableOpacity
+                  onPress={() => setAddDebt(addDebt === true ? false : true)}
+                >
+                  <Text style={styles.summaryTitle}>
+                    {t("transactions.addDebt")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ marginVertical: 12 }}>
+                {/* Client mode selector */}
+                {addDebt && (
+                  <View style={styles.row}>
+                    <TouchableOpacity
+                      style={[
+                        styles.sourceButton,
+                        clientMode === "none" && styles.sourceButtonActive,
+                      ]}
+                      onPress={() => {
+                        setClientMode("none");
+                        setSelectedClient(null);
+                        setNewClientName("");
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.sourceText,
+                          clientMode === "none" && styles.sourceTextActive,
+                        ]}
+                      >
+                        {t("transactions.noClient")}
                       </Text>
-                      <Text style={styles.productStock}>
-                        {t("products.inStock")}: {item.quantity}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.sourceButton,
+                        clientMode === "existing" && styles.sourceButtonActive,
+                      ]}
+                      onPress={() => setClientMode("existing")}
+                    >
+                      <Text
+                        style={[
+                          styles.sourceText,
+                          clientMode === "existing" && styles.sourceTextActive,
+                        ]}
+                      >
+                        {t("transactions.existingClient")}
                       </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.sourceButton,
+                        clientMode === "new" && styles.sourceButtonActive,
+                      ]}
+                      onPress={() => setClientMode("new")}
+                    >
+                      <Text
+                        style={[
+                          styles.sourceText,
+                          clientMode === "new" && styles.sourceTextActive,
+                        ]}
+                      >
+                        {t("transactions.newClient")}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Existing client search */}
+                {clientMode === "existing" && addDebt && (
+                  <>
+                    <View
+                      style={[
+                        styles.searchContainer,
+                        { width: "100%", marginTop: 12, marginBottom: 12 },
+                      ]}
+                    >
+                      <Ionicons name="search" size={20} color="#999" />
+                      <TextInput
+                        style={[{ width: "100%" }]}
+                        placeholder={t("clients.search")}
+                        placeholderTextColor="#999"
+                        value={clientSearchQuery}
+                        onChangeText={setClientSearchQuery}
+                      />
                     </View>
-
-                    {/* Right - actions */}
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={styles.priceText}>
-                        {t("products.bulkFirstLetter")}:{" "}
-                        {item.pricing?.bulkPrice?.toLocaleString()}
-                      </Text>
-                      <Text style={styles.priceText}>
-                        {t("products.retailFirstLetter")}:{" "}
-                        {item.pricing?.retailPrice?.toLocaleString()}
-                      </Text>
-                      {cartItem ? (
-                        <>
-                          <View style={styles.qtyControls}>
-                            <TouchableOpacity
-                              style={styles.qtyBtn}
-                              onPress={() =>
-                                updateQuantity(item._id, cartItem.quantity - 1)
-                              }
-                            >
-                              <Text style={styles.qtyBtnText}>−</Text>
-                            </TouchableOpacity>
-                            <TextInput
-                              style={styles.qtyInput}
-                              value={String(cartItem.quantity)}
-                              onChangeText={(val) =>
-                                updateQuantity(item._id, Number(val) || 0)
-                              }
-                              keyboardType="numeric"
-                            />
-                            <TouchableOpacity
-                              style={styles.qtyBtn}
-                              onPress={() =>
-                                updateQuantity(item._id, cartItem.quantity + 1)
-                              }
-                            >
-                              <Text style={styles.qtyBtnText}>+</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={() => removeFromCart(item._id)}
-                              style={styles.removeFromCartBtn}
-                            >
-                              <Text style={styles.removeFromCartText}>🗑️</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </>
-                      ) : (
-                        <>
+                    <ScrollView style={{ maxHeight: 160 }} nestedScrollEnabled>
+                      {(clients || [])
+                        .filter(
+                          (c) =>
+                            c.name
+                              ?.toLowerCase()
+                              .includes(clientSearchQuery.toLowerCase()) ||
+                            c.phone?.includes(clientSearchQuery),
+                        )
+                        .map((client) => (
                           <TouchableOpacity
-                            style={styles.addBtn}
-                            onPress={() => addToCart(item)}
+                            key={client._id}
+                            style={[
+                              styles.chip,
+                              { marginBottom: 6, width: "100%" },
+                              selectedClient?._id === client._id &&
+                                styles.chipActive,
+                            ]}
+                            onPress={() => setSelectedClient(client)}
                           >
-                            <Text style={styles.addBtnText}>
-                              + {t("common.add")}
+                            <Text
+                              style={[
+                                styles.chipText,
+                                selectedClient?._id === client._id &&
+                                  styles.chipTextActive,
+                              ]}
+                            >
+                              {client.name}{" "}
+                              {client.debt > 0
+                                ? `• ${client.debt.toLocaleString()} UZS`
+                                : ""}
                             </Text>
                           </TouchableOpacity>
-                        </>
-                      )}
+                        ))}
+                    </ScrollView>
+                  </>
+                )}
+
+                {/* New client */}
+                {clientMode === "new" && addDebt && (
+                  <View>
+                    <TextInput
+                      style={[
+                        styles.searchContainer,
+                        { marginTop: 12, paddingVertical: 4, width: "100%" },
+                      ]}
+                      placeholder={t("clients.name")}
+                      placeholderTextColor="#999"
+                      value={newClientName}
+                      onChangeText={setNewClientName}
+                    />
+                    <TextInput
+                      style={[
+                        styles.searchContainer,
+                        { marginTop: 12, paddingVertical: 4, width: "100%" },
+                      ]}
+                      placeholder={t("clients.phone")}
+                      placeholderTextColor="#999"
+                      value={newClientPhone}
+                      onChangeText={setNewClientPhone}
+                    />
+                    <TextInput
+                      style={[
+                        styles.searchContainer,
+                        { marginTop: 12, paddingVertical: 4, width: "100%" },
+                      ]}
+                      placeholder={t("clients.note")}
+                      placeholderTextColor="#999"
+                      value={newClientNote}
+                      onChangeText={setNewClientNote}
+                    />
+                  </View>
+                )}
+
+                {/* Debt amount — only for credit */}
+                {addDebt && clientMode !== "none" && (
+                  <View
+                    style={[styles.searchContainer, styles.debtInputContainer]}
+                  >
+                    <Ionicons name="cash-outline" size={20} color="#999" />
+                    <TextInput
+                      style={[styles.searchInput, styles.debtInput]}
+                      placeholder={t("clients.debt")}
+                      placeholderTextColor="#999"
+                      value={debtAmount}
+                      onChangeText={(val) => {
+                        setIsMaxDebt(false);
+                        setDebtAmount(val);
+                      }}
+                      keyboardType="numeric"
+                      autoComplete="off"
+                      autoCorrect={false}
+                      textContentType="none"
+                    />
+                    <TouchableOpacity
+                      style={styles.maxBtn}
+                      onPress={() => {
+                        setIsMaxDebt(true);
+                        setDebtAmount(String(getCartTotal()));
+                      }}
+                    >
+                      <Text style={styles.maxBtnText}>Max</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {/* Items List */}
+              {cart.map((item) => {
+                const price =
+                  item.priceType === "wholesale"
+                    ? item.pricing?.wholesalePrice
+                    : item.pricing?.retailPrice;
+                return (
+                  <View key={item._id} style={styles.summaryItem}>
+                    <View style={styles.summaryItemLeft}>
+                      <Text style={styles.summaryItemName}>
+                        {item.name} - {item.model}
+                      </Text>
+                      <Text style={styles.summaryItemDetail}>
+                        {item.quantity} x {price?.toLocaleString()}
+                      </Text>
                     </View>
+                    <Text style={styles.summaryItemTotal}>
+                      {(price * item.quantity)?.toLocaleString()} UZS
+                    </Text>
                   </View>
                 );
-              })
-            )}
-          </ScrollView>
-        </View>
-      )}
+              })}
 
-      {cart.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("transactions.priceType")}</Text>
-          <View style={styles.row}>
-            <TouchableOpacity
-              style={[
-                styles.sourceButton,
-                priceType === "bulk" && styles.sourceButtonActive,
-              ]}
-              onPress={() => updateAllPriceTypes("bulk")}
-            >
-              <Text
+              {/* Divider */}
+              <View style={styles.divider} />
+
+              {/* Discount input */}
+              <View
                 style={[
-                  styles.sourceText,
-                  priceType === "bulk" && styles.sourceTextActive,
+                  styles.searchContainer,
+                  { width: "100%", marginBottom: 4 },
                 ]}
               >
-                {t("transactions.bulk")}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.sourceButton,
-                priceType === "retail" && styles.sourceButtonActive,
-              ]}
-              onPress={() => updateAllPriceTypes("retail")}
-            >
-              <Text
-                style={[
-                  styles.sourceText,
-                  priceType === "retail" && styles.sourceTextActive,
-                ]}
-              >
-                {t("transactions.retail")}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+                <Ionicons name="pricetag-outline" size={20} color="#999" />
+                <TextInput
+                  style={[styles.searchInput, { flex: 1 }]}
+                  placeholder={t("transactions.discount")}
+                  placeholderTextColor="#999"
+                  value={discount}
+                  onChangeText={setDiscount}
+                  keyboardType="numeric"
+                  autoComplete="off"
+                  autoCorrect={false}
+                  textContentType="none"
+                />
+              </View>
 
-      {/* Payment Method */}
-      {cart.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {t("transactions.paymentMethod")}
-          </Text>
-          <View style={styles.row}>
-            <TouchableOpacity
-              style={[
-                styles.sourceButton,
-                paymentMethod === "naqd" && styles.sourceButtonActive,
-              ]}
-              onPress={() => setPaymentMethod("naqd")}
-            >
-              <Text
-                style={[
-                  styles.sourceText,
-                  paymentMethod === "naqd" && styles.sourceTextActive,
-                ]}
-              >
-                {t("transactions.cash")}
-                💵
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.sourceButton,
-                paymentMethod === "karta" && styles.sourceButtonActive,
-              ]}
-              onPress={() => setPaymentMethod("karta")}
-            >
-              <Text
-                style={[
-                  styles.sourceText,
-                  paymentMethod === "karta" && styles.sourceTextActive,
-                ]}
-              >
-                {t("transactions.card")}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* Summary */}
-      {cart.length > 0 && (
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>{t("reports.summary")} | {priceType === "bulk" ? t("transactions.bulk") : t("transactions.retail")} | {paymentMethod === "naqd" ? t("transactions.cash") : t("transactions.card")}</Text>
-
-          {/* Items List */}
-          {cart.map((item) => {
-            const price =
-              item.priceType === "bulk"
-                ? item.pricing?.bulkPrice
-                : item.pricing?.retailPrice;
-            return (
-              <View key={item._id} style={styles.summaryItem}>
-                <View style={styles.summaryItemLeft}>
-                  <Text style={styles.summaryItemName}>
-                    {item.name} - {item.model}
-                  </Text>
-                  <Text style={styles.summaryItemDetail}>
-                    {item.quantity} x {price?.toLocaleString()}
+              {discountWarning() && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    marginBottom: 8,
+                  }}
+                >
+                  <Ionicons
+                    name="warning-outline"
+                    size={14}
+                    color={Colors.error}
+                  />
+                  <Text style={{ color: Colors.error, fontSize: 12 }}>
+                    {discountWarning()}
                   </Text>
                 </View>
-                <Text style={styles.summaryItemTotal}>
-                  {(price * item.quantity)?.toLocaleString()} UZS
+              )}
+
+              {/* Subtotal row — only show when discount applied */}
+              {discount && Number(discount) > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>
+                    {t("transactions.subtotal")}
+                  </Text>
+                  <Text style={styles.summaryValue}>
+                    {cart
+                      .reduce((sum, item) => {
+                        const price =
+                          item.priceType === "wholesale"
+                            ? item.pricing?.wholesalePrice
+                            : item.pricing?.retailPrice;
+                        return sum + price * item.quantity;
+                      }, 0)
+                      .toLocaleString()}{" "}
+                    UZS
+                  </Text>
+                </View>
+              )}
+
+              {/* Discount row */}
+              {discount && Number(discount) > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, { color: Colors.error }]}>
+                    {t("transactions.discount")}
+                  </Text>
+                  <Text style={[styles.summaryValue, { color: Colors.error }]}>
+                    -{Number(discount).toLocaleString()} UZS
+                  </Text>
+                </View>
+              )}
+
+              {/* Total */}
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { fontWeight: "700" }]}>
+                  {t("reports.total")}
+                </Text>
+                <Text
+                  style={[
+                    styles.summaryValue,
+                    { color: Colors.primary, fontSize: 16 },
+                  ]}
+                >
+                  {getCartTotal().toLocaleString()} UZS
                 </Text>
               </View>
-            );
-          })}
-
-          {/* Divider */}
-          <View style={styles.divider} />
-
-          {/* Totals */}
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Amount</Text>
-            <Text style={[styles.summaryValue, { color: Colors.primary }]}>
-              {getCartTotal().toLocaleString()} UZS
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Submit */}
-      {cart.length > 0 && (
-        <TouchableOpacity
-          style={styles.submitButton}
-          onPress={handleCreateTransaction}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color={Colors.white} />
-          ) : (
-            <Text style={styles.submitButtonText}>
-              {t("transactions.recordSale")}
-            </Text>
+            </View>
           )}
-        </TouchableOpacity>
-      )}
 
-      {isUser && <Text style={styles.empty}>{t("transactions.isUser")}</Text>}
+          {/* Submit */}
+          {cart.length > 0 && (
+            <TouchableOpacity
+              style={styles.submitButton}
+              onPress={handleCreateTransaction}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <Text style={styles.submitButtonText}>
+                  {t("transactions.recordSale")}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
 
-      <View style={{ height: 40 }} />
+          {isUser && (
+            <Text style={styles.empty}>{t("transactions.isUser")}</Text>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <Modal visible={scannerVisible} animationType="slide">
         <ProductScanner
@@ -597,7 +1020,57 @@ export default function NewTransaction({ onClose }) {
           onClose={() => setScannerVisible(false)}
         />
       </Modal>
-    </ScrollView>
+
+      {/* Success Modal */}
+      <Modal visible={successModal} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons
+              name="checkmark-circle"
+              size={48}
+              color={Colors.success}
+            />
+            <Text style={styles.centeredTitle}>{t("common.success")}</Text>
+            <Text style={styles.centeredSubtitle}>
+              {t("transactions.saleRecorded")}
+            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                style={[
+                  styles.centeredBtn,
+                  { backgroundColor: Colors.success },
+                ]}
+                onPress={() => {
+                  setSuccessModal(false);
+                  handleClose();
+                }}
+              >
+                <Text style={styles.centeredBtnText}>{t("common.ok")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal visible={!!errorMessage} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="close-circle" size={48} color={Colors.error} />
+            <Text style={styles.centeredTitle}>{t("common.errorTitle")}</Text>
+            <Text style={styles.centeredSubtitle}>{errorMessage}</Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                style={styles.centeredBtn}
+                onPress={() => setErrorMessage(null)}
+              >
+                <Text style={styles.centeredBtnText}>{t("common.ok")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -609,12 +1082,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     padding: 20,
-    paddingTop: 60,
     backgroundColor: Colors.white,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  back: { color: Colors.primary, fontSize: 16 },
+  back: { color: Colors.text },
   headerTitle: { fontSize: 20, fontWeight: "bold", color: Colors.text },
   section: { margin: 16 },
   sectionTitle: {
@@ -630,14 +1102,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.border,
+    flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
     backgroundColor: Colors.white,
+    gap: 5,
   },
   sourceButtonActive: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
-  sourceText: { fontWeight: "600", color: Colors.text },
+  sourceText: { fontWeight: "600", color: Colors.text, textAlign: "center" },
   sourceTextActive: { color: Colors.white },
   chip: {
     paddingHorizontal: 16,
@@ -651,14 +1126,18 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   chipText: { color: Colors.text, fontWeight: "500" },
   chipTextActive: { color: Colors.white },
-  input: {
-    flex: 1,
+  searchContainer: {
+    width: 295,
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 12,
+    paddingHorizontal: 12,
+  },
+  searchInput: {
     padding: 16,
-    marginBottom: 8,
     fontSize: 16,
   },
   productCard: {
@@ -729,8 +1208,9 @@ const styles = StyleSheet.create({
   toggleTxt: { fontSize: 12, fontWeight: "600", color: Colors.text },
   toggleTxtActive: { color: Colors.white },
   qtyControls: {
+    position: "absolute",
     flexDirection: "row",
-    alignItems: "center",
+    top: 70,
     gap: 8,
   },
   qtyBtn: {
@@ -754,11 +1234,13 @@ const styles = StyleSheet.create({
   addBtn: {
     backgroundColor: Colors.primary,
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    alignSelf: "flex-end",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 40,
+    height: 40,
+    marginTop: 12,
   },
-  addBtnText: { color: Colors.white, fontWeight: "600", fontSize: 14 },
+  addBtnText: { color: Colors.white },
   cartCard: {
     backgroundColor: Colors.white,
     borderRadius: 12,
@@ -809,7 +1291,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     color: Colors.text,
-    marginBottom: 12,
+    flex: 1,
   },
   summaryRow: {
     flexDirection: "row",
@@ -861,16 +1343,13 @@ const styles = StyleSheet.create({
   submitButtonText: { color: Colors.white, fontWeight: "bold", fontSize: 18 },
   empty: { textAlign: "center", color: Colors.textLight, marginTop: 20 },
   removeFromCartBtn: {
-    backgroundColor: Colors.error + "12",
-    borderWidth: 1,
-    borderColor: Colors.error,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    padding: 8,
-    borderRadius: 8,
   },
   removeFromCartText: {
-    fontSize: 13,
+    color: Colors.white,
   },
   searchRow: {
     flexDirection: "row",
@@ -880,13 +1359,63 @@ const styles = StyleSheet.create({
   scanBtn: {
     backgroundColor: Colors.primary,
     borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginBottom: 8,
+    padding: 16,
+    justifyContent: "center",
   },
   scanBtnText: {
     color: Colors.white,
+  },
+  centeredOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 15,
+  },
+  centeredModal: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    padding: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  centeredTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.text,
+  },
+  centeredSubtitle: {
+    fontSize: 17,
+    color: Colors.text,
+  },
+  centeredBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.error,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  centeredBtnText: {
+    color: Colors.white,
+  },
+
+  debtInputContainer: {
+    marginTop: 12,
+    width: "100%",
+  },
+  debtInput: {
+    flex: 1,
+  },
+  maxBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginRight: 4,
+  },
+  maxBtnText: {
+    color: Colors.white,
+    fontSize: 12,
     fontWeight: "600",
-    fontSize: 16,
   },
 });

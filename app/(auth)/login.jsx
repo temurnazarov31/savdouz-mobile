@@ -1,9 +1,9 @@
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -14,29 +14,44 @@ import {
 } from "react-native";
 import Colors from "../../constants/colors";
 import useAuthStore from "../../store/authStore";
-import { isValidEmail } from "../../utils/validate";
 
 export default function Login() {
-  const [emailOrPhone, setEmailOrPhone] = useState("");
+  const [loginInput, setLoginIput] = useState("");
   const [password, setPassword] = useState("");
   const { login, isLoading, error } = useAuthStore();
   const { t } = useTranslation();
+  const [showPassword, setShowPassword] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [loginError, setLoginError] = useState(false);
 
-  const handleLogin = async () => {
-    if (!emailOrPhone) {
-      Alert.alert("Error", t("auth.required"));
-      return;
+  const getError = () => {
+    if (!loginInput) {
+      return t("auth.required");
     }
-    const isPhone = emailOrPhone.startsWith("+") || /^\d+$/.test(emailOrPhone);
-    if (!isPhone && !isValidEmail(emailOrPhone)) {
-      Alert.alert("Error", t("auth.validEmailOrPhone"));
-      return;
+    const isPhone = loginInput.startsWith("+") || /^\d+$/.test(loginInput);
+    const isEmail = loginInput.includes("@");
+    if (!isPhone && !isEmail && loginInput.trim().length < 3) {
+      return t("auth.validLoginInput");
     }
     if (!password) {
-      Alert.alert("Error", t("auth.requiredPassword"));
-      return;
+      return t("auth.requiredPassword");
     }
-    const success = await login(emailOrPhone, password);
+    if (password.length < 8) {
+      return t("auth.passwordShort");
+    }
+    if (loginError) {
+      return t("auth.invalidCredentials");
+    }
+    return null;
+  };
+
+  const handleLogin = async () => {
+    setSubmitted(true);
+
+    if (getError()) return;
+
+    const success = await login(loginInput, password);
+    setLoginError(true);
     if (success) router.replace("/(tabs)/reports");
   };
 
@@ -49,26 +64,52 @@ export default function Login() {
         <Text style={styles.title}>SavdoUz</Text>
         <Text style={styles.subtitle}>{t("auth.loginTitle")}</Text>
 
-        {error && <Text style={styles.error}>{error}</Text>}
+        {submitted && getError() ? (
+          <Text style={styles.error}>{getError()}</Text>
+        ) : (
+          submitted && <Text style={styles.error}>{error}</Text>
+        )}
 
         <TextInput
           style={styles.input}
-          placeholder={t("auth.emailOrPhone")}
+          placeholder={t("auth.loginInput")}
           placeholderTextColor="#999"
-          value={emailOrPhone}
-          onChangeText={setEmailOrPhone}
+          value={loginInput}
+          onChangeText={(val) => {
+            setLoginIput(val);
+            setSubmitted(false);
+            setLoginError(false);
+          }}
           autoCapitalize="none"
           keyboardType="email-address"
         />
 
-        <TextInput
-          style={styles.input}
-          placeholder={t("auth.password")}
-          placeholderTextColor="#999"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
+        <View style={styles.passwordInput}>
+          <TextInput
+            style={{
+              flex: 1,
+              backgroundColor: Colors.white,
+              fontSize: 16,
+              color: Colors.text,
+            }}
+            placeholder={t("auth.password")}
+            placeholderTextColor="#999"
+            value={password}
+            onChangeText={(val) => {
+              setPassword(val);
+              setSubmitted(false);
+              setLoginError(false);
+            }}
+            secureTextEntry={!showPassword}
+          />
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+            <Ionicons
+              name={showPassword ? "eye" : "eye-off"}
+              size={22}
+              color="#5d7ba5"
+            />
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={styles.button}
@@ -122,6 +163,17 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontSize: 16,
     color: Colors.text,
+  },
+  passwordInput: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    padding: 8,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    marginBottom: 16,
   },
   button: {
     backgroundColor: Colors.primary,

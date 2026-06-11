@@ -2,6 +2,26 @@ import * as SecureStore from "expo-secure-store";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
+// Cache 
+const cache = {};
+
+export const getCached = async (url) => {
+  if (cache[url]) {
+    return cache[url]; 
+  }
+  const data = await get(url);
+  cache[url] = data;
+  return data;
+};
+
+export const invalidateCache = (...urls) => {
+  urls.forEach((url) => delete cache[url]);
+};
+
+export const clearCache = () => {
+  Object.keys(cache).forEach((key) => delete cache[key]);
+};
+
 const request = async (method, endpoint, body = null) => {
   const token = await SecureStore.getItemAsync("token");
 
@@ -21,14 +41,24 @@ const request = async (method, endpoint, body = null) => {
 
   if (response.status === 204) return null;
 
-  const data = JSON.parse(text);
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(text);
+  }
 
   if (!response.ok) {
-    throw new Error(data.message || "Something went wrong");
+    throw new Error(data.code || data.message || "Something went wrong");
   }
 
   return data;
 };
+
+// Frontend (api.js)
+// const verifyOTP = async (email, code) => {
+//   return await post('/auth/verify-otp', { email, code });
+// };
 
 export const get = (endpoint) => request("GET", endpoint);
 export const post = (endpoint, body) => request("POST", endpoint, body);

@@ -1,19 +1,18 @@
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ActivityIndicator,
-  Alert,
   FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import Colors from "../../constants/colors";
-import { get } from "../../services/api";
+import { get, getCached } from "../../services/api";
 
 // Generate last 30 days for date picker
 const getLast30Days = () => {
@@ -27,23 +26,48 @@ const getLast30Days = () => {
 };
 
 export default function DeliveryHistory() {
-  const { outletId } = useLocalSearchParams();
+  const [outlets, setOutlets] = useState([]);
+  const [selectedOutlet, setSelectedOutlet] = useState(null);
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
+  const [errorMessage, setErrorMessage] = useState(null);
   const { t } = useTranslation();
 
   const dates = getLast30Days();
 
-  const fetchDeliveries = async () => {
+  const fetchOutlets = async () => {
     try {
       setLoading(true);
-      const data = await get(`/deliveries/outlet/${outletId}`);
-      setDeliveries(data.data.deliveries);
+      const data = await getCached("/outlets/");
+      const outletList = data.data?.outlets || [];
+      setOutlets(outletList);
+      if (outletList.length > 0) {
+        setSelectedOutlet(outletList[0]._id);
+      }
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchOutlets();
+    }, []),
+  );
+
+  const fetchDeliveries = async () => {
+    if (!selectedOutlet) return;
+    try {
+      setLoading(true);
+      const data = await get(`/deliveries/outlet/${selectedOutlet}`);
+      setDeliveries(data.data?.deliveries || []);
+    } catch (err) {
+      setErrorMessage(err.message);
     } finally {
       setLoading(false);
     }
@@ -52,7 +76,7 @@ export default function DeliveryHistory() {
   useFocusEffect(
     useCallback(() => {
       fetchDeliveries();
-    }, []),
+    }, [selectedOutlet]),
   );
 
   const filteredDeliveries = deliveries.filter((d) => {
@@ -70,35 +94,52 @@ export default function DeliveryHistory() {
     return matchesSearch && matchesDate;
   });
 
-  if (loading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>← {t("common.back")}</Text>
+          <Ionicons
+            name="arrow-back-outline"
+            size={24}
+            color={Colors.primary}
+          />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t("delivery.historyTitle")}</Text>
         <View />
       </View>
 
       {/* Search */}
-      <View style={styles.filters}>
-        <TextInput
-          style={styles.input}
-          placeholder={t("delivery.searchDelivery")}
-  placeholderTextColor="#999"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
+      <View style={styles.outletFilter}>
+        <Text style={styles.filterLabel}>{t("stores.selectStore")}</Text>
+        <View
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexDirection: "row", flexWrap: "wrap" }}
+        >
+          {outlets.map((outlet) => (
+            <TouchableOpacity
+              key={outlet._id}
+              style={[
+                styles.dateChip,
+                selectedOutlet === outlet._id && styles.dateChipActive,
+              ]}
+              onPress={() => setSelectedOutlet(outlet._id)}
+            >
+              <Text
+                style={[
+                  styles.dateChipText,
+                  selectedOutlet === outlet._id && styles.dateChipTextActive,
+                ]}
+              >
+                {outlet.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
 
+      <View style={styles.filters}>
         {/* Date Picker — scroll through last 30 days */}
         <Text style={styles.filterLabel}>{t("delivery.filterByDate")}:</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -175,16 +216,36 @@ export default function DeliveryHistory() {
             {/* Row 1 - From → To with names */}
             <View style={styles.routeRow}>
               <View style={styles.outletBox}>
-                <Text style={styles.outletIcon}>
-                  {item.fromType === "store" ? "🏪" : "🏭"}
-                </Text>
+                {item.fromType === "store" ? (
+                  <Ionicons
+                    name={"storefront-outline"}
+                    size={20}
+                    color={Colors.textLight}
+                  />
+                ) : (
+                  <MaterialIcons
+                    name="warehouse"
+                    size={20}
+                    color={Colors.textLight}
+                  />
+                )}
                 <Text style={styles.outletName}>{item.fromName}</Text>
               </View>
-              <Text style={styles.arrow}>→</Text>
+              <Ionicons name="arrow-forward" size={24} color={Colors.text} />
               <View style={styles.outletBox}>
-                <Text style={styles.outletIcon}>
-                  {item.toType === "store" ? "🏪" : "🏭"}
-                </Text>
+                {item.toType === "store" ? (
+                  <Ionicons
+                    name={"storefront-outline"}
+                    size={20}
+                    color={Colors.textLight}
+                  />
+                ) : (
+                  <MaterialIcons
+                    name="warehouse"
+                    size={20}
+                    color={Colors.textLight}
+                  />
+                )}
                 <Text style={styles.outletName}>{item.toName}</Text>
               </View>
             </View>
@@ -192,11 +253,15 @@ export default function DeliveryHistory() {
             {/* Row 2 - Products count & Date */}
             <View style={styles.infoRow}>
               <Text style={styles.infoText}>
-                {item.products?.length} product
+                {item.products?.length} {t("reports.product")}
                 {item.products?.length > 1 ? "s" : ""}
               </Text>
               <Text style={styles.dateText}>
-                {item.date}{" "}
+                {new Date(item.createdAt).toLocaleDateString("uz-UZ", {
+                  day: "2-digit",
+                  month: "short",
+                  timeZone: "Asia/Tashkent",
+                })}{" "}
                 {new Date(item.createdAt).toLocaleTimeString("uz-UZ", {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -206,7 +271,7 @@ export default function DeliveryHistory() {
             </View>
 
             {/* Note */}
-            {item.note && <Text style={styles.note}>📝 {item.note}</Text>}
+            {item.note && <Text style={styles.note}>{item.note}</Text>}
 
             {/* Expanded Products */}
             {expandedId === item._id && (
@@ -225,6 +290,25 @@ export default function DeliveryHistory() {
           </TouchableOpacity>
         )}
       />
+
+      {/* Error Modal */}
+      <Modal visible={!!errorMessage} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="close-circle" size={48} color={Colors.error} />
+            <Text style={styles.centeredTitle}>{t("common.errorTitle")}</Text>
+            <Text style={styles.centeredSubtitle}>{errorMessage}</Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                style={styles.centeredBtn}
+                onPress={() => setErrorMessage(null)}
+              >
+                <Text style={styles.centeredBtnText}>{t("common.ok")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -244,20 +328,17 @@ const styles = StyleSheet.create({
   },
   back: { color: Colors.primary, fontSize: 16 },
   headerTitle: { fontSize: 20, fontWeight: "bold", color: Colors.text },
+  outletFilter: {
+    padding: 16,
+    paddingBottom: 0,
+    backgroundColor: Colors.white,
+    borderBottomColor: Colors.border,
+  },
   filters: {
     padding: 16,
     backgroundColor: Colors.white,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-  },
-  input: {
-    backgroundColor: Colors.background,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 15,
-    marginBottom: 12,
   },
   filterLabel: {
     fontSize: 13,
@@ -271,6 +352,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     marginRight: 8,
+    marginBottom: 8,
     backgroundColor: Colors.white,
   },
   dateChipActive: {
@@ -350,5 +432,39 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
     marginTop: 40,
     fontSize: 16,
+  },
+
+  centeredOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 15,
+  },
+  centeredModal: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    padding: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  centeredTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.text,
+  },
+  centeredSubtitle: {
+    fontSize: 17,
+    color: Colors.text,
+  },
+  centeredBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.error,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  centeredBtnText: {
+    color: Colors.white,
   },
 });

@@ -6,4 +6,4 @@ export const formatNumber = (num) => {
   return num.toLocaleString();
 };
 
-export const formatPrice = (num) => `${formatNumber(num)} UZS`;
+export const formatPrice = (num) => `${formatNumber(num)}`;

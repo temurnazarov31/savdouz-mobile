@@ -1,430 +1,65 @@
+import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ActivityIndicator,
-  Alert,
+  FlatList,
   Modal,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import PagerView from "react-native-pager-view";
-import QRCode from "react-native-qrcode-svg";
+import Dropdown from "../../components/dropdown";
+import { SkeletonList } from "../../components/skeleton";
 import Colors from "../../constants/colors";
 import useRole from "../../hooks/useRole";
-import { del, get, patch, post } from "../../services/api";
+import { get, getCached, invalidateCache, post } from "../../services/api";
 
-function StorePage({ store, isOwner, onDelete }) {
-  const [products, setProducts] = useState([]);
-  const [allProducts, setAllProducts] = useState([]);
-  const [editModal, setEditModal] = useState(false);
-  const [addProductModal, setAddProductModal] = useState(false);
-  const [inviteModal, setInviteModal] = useState(false);
-  const [inviteToken, setInviteToken] = useState(null);
-  const [name, setName] = useState(store.name);
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const { t } = useTranslation();
-
-  const fetchProducts = () => {
-    get(`/stores/products/${store._id}`)
-      .then((data) => {
-        const inventory = data.data.inventory;
-        setProducts(
-          Array.isArray(inventory) ? inventory : inventory ? [inventory] : [],
-        );
-      })
-      .catch(() => {});
-  };
-
-  const fetchAllProducts = () => {
-    get("/products")
-      .then((data) => setAllProducts(data.data.products))
-      .catch(() => {});
-  };
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchProducts();
-      fetchAllProducts();
-    }, [store._id]),
-  );
-
-  const filteredProducts = allProducts.filter(
-    (p) =>
-      p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.model?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
-  const handleUpdateStore = async () => {
-    try {
-      await patch(`/stores/${store._id}`, { name });
-      setEditModal(false);
-    } catch (err) {
-      Alert.alert("Error", err.message);
-    }
-  };
-
-  const handleGenerateInvite = async () => {
-    try {
-      const data = await post(`/stores/${store._id}/invite`);
-      setInviteToken(data.data.token);
-      setInviteModal(true);
-    } catch (err) {
-      Alert.alert("Error", err.message);
-    }
-  };
-
-  const handleRemoveWorker = (workerId, workerName) => {
-    Alert.alert(`${workerName}`, `${"workers.deleteWorkerConfirm"}`, [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("common.remove"),
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await del(`/stores/${store._id}/workers/${workerId}`);
-          } catch (err) {
-            Alert.alert("Error", err.message);
-          }
-        },
-      },
-    ]);
-  };
-
-  const handleAddProduct = async () => {
-    if (!selectedProductId || !quantity) {
-      Alert.alert(
-        t("common.errorTitle"),
-        t("products.selectProductAndQuantity"),
-      );
-      return;
-    }
-    try {
-      await post(`/stores/${store._id}/products`, {
-        productId: selectedProductId,
-        quantity: Number(quantity),
-      });
-      setAddProductModal(false);
-      setSelectedProductId("");
-      setQuantity("");
-      fetchProducts();
-    } catch (err) {
-      Alert.alert("Error", err.message);
-    }
-  };
-
-  const handleRemoveProduct = (productId, productName) => {
-    Alert.alert(`${productName}`, `${t("products.deleteProductConfirm")}`, [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("common.remove"),
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await del(`/stores/products/${productId}`);
-            fetchProducts();
-          } catch (err) {
-            Alert.alert("Error", err.message);
-          }
-        },
-      },
-    ]);
-  };
-
-  return (
-    <ScrollView style={styles.page}>
-      {/* Store Header */}
-      <View style={styles.storeHeader}>
-        <View style={styles.storeHeaderRow}>
-          <Text style={styles.storeName}>{store.name}</Text>
-          {isOwner && (
-            <TouchableOpacity onPress={() => setEditModal(true)}>
-              <Text style={styles.editText}>{t("common.edit")}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <View style={styles.storeStats}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{store.workers?.length || 0}</Text>
-            <Text style={styles.statLabel}>{t("stores.storeWorkers")}</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{products?.length || 0}</Text>
-            <Text style={styles.statLabel}>{t("stores.storeProducts")}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Delivery */}
-      <View style={styles.section}>
-        <View style={{ gap: 12 }}>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() =>
-              router.push({
-                pathname: "/delivery/history",
-                params: { outletId: store._id },
-              })
-            }
-          >
-            <Text style={styles.actionBtnText}>
-              📦 {t("delivery.historyTitle")}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: Colors.primary }]}
-            onPress={() => router.push("/delivery/new")}
-          >
-            <Text style={[styles.actionBtnText, { color: Colors.white }]}>
-              📦 {t("delivery.title")}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Workers */}
-      {isOwner && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              {t("stores.storeWorkers")} ({store?.workers?.length || 0})
-            </Text>
-            <View style={styles.sectionActions}>
-              <TouchableOpacity
-                style={styles.smallBtn}
-                onPress={() => router.push(`/store/${store._id}/requests`)}
-              >
-                <Text style={styles.smallBtnText}>{t("workers.requests")}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.smallBtn, { backgroundColor: Colors.primary }]}
-                onPress={handleGenerateInvite}
-              >
-                <Text style={[styles.smallBtnText, { color: Colors.white }]}>
-                  + {t("workers.invite")}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          {store?.workers?.length === 0 ? (
-            <Text style={styles.empty}>{t("workers.empty")}</Text>
-          ) : (
-            store?.workers?.map((worker) => (
-              <View key={worker._id} style={styles.workerCard}>
-                <Text style={styles.workerName}>
-                  {worker.name || "Unknown"}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => handleRemoveWorker(worker.user, worker.name)}
-                >
-                  <Text style={styles.removeText}>{t("common.remove")}</Text>
-                </TouchableOpacity>
-              </View>
-            ))
-          )}
-        </View>
-      )}
-
-      {/* Products */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            {t("products.title")} ({products.length})
-          </Text>
-          {isOwner && (
-            <TouchableOpacity
-              style={[styles.smallBtn, { backgroundColor: Colors.primary }]}
-              onPress={() => setAddProductModal(true)}
-            >
-              <Text style={[styles.smallBtnText, { color: Colors.white }]}>
-                + {t("common.add")}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {products.length === 0 ? (
-          <Text style={styles.empty}>{t("products.noProducts")}</Text>
-        ) : (
-          products.map((item) => (
-            <View key={item._id} style={styles.productCard}>
-              <View style={styles.productInfo}>
-                <Text style={styles.productName}>{item.name}</Text>
-                <Text style={styles.productModel}>Model: {item.model}</Text>
-                <Text style={styles.productStock}>
-                  {t("products.inStock")}: {item.quantity?.toLocaleString()}
-                </Text>
-              </View>
-              <View style={styles.productPrices}>
-                <Text style={styles.priceText}>
-                  {t("transactions.bulk")}:{" "}
-                  {item.pricing?.bulkPrice?.toLocaleString()}
-                </Text>
-                <Text style={styles.priceText}>
-                  {t("transactions.retail")}:{" "}
-                  {item.pricing?.retailPrice?.toLocaleString()}
-                </Text>
-                {isOwner && (
-                  <TouchableOpacity
-                    onPress={() => handleRemoveProduct(item.product, item.name)}
-                  >
-                    <Text style={styles.removeText}>{t("common.remove")}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          ))
-        )}
-      </View>
-
-      <View style={{ height: 40 }} />
-
-      {/* Edit Modal */}
-      <Modal visible={editModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{t("stores.editStore")}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t("stores.storeName")}
-              placeholderTextColor="#999"
-              value={name}
-              onChangeText={setName}
-            />
-            <TouchableOpacity style={styles.button} onPress={handleUpdateStore}>
-              <Text style={styles.buttonText}>{t("common.save")}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setEditModal(false)}
-            >
-              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Invite Modal */}
-      <Modal visible={inviteModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>{t("workers.inviteWorker")}</Text>
-            <Text style={styles.inviteLabel}>{t("workers.inviteQR")}:</Text>
-            <View style={styles.qrContainer}>
-              <QRCode
-                value={inviteToken || "empty"}
-                size={200}
-                color={Colors.text}
-                backgroundColor={Colors.white}
-              />
-            </View>
-            <Text style={styles.inviteNote}>{t("workers.QRExpires")}</Text>
-            <TouchableOpacity
-              style={styles.button}
-              onPress={() => setInviteModal(false)}
-            >
-              <Text style={styles.buttonText}>{t("common.done")}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Add Product Modal */}
-      <Modal visible={addProductModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modal, { maxHeight: "80%" }]}>
-            <Text style={styles.modalTitle}>
-              {t("stores.addProductToStore")}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t("products.searchProduct")}
-              placeholderTextColor="#999"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            <ScrollView style={{ maxHeight: 200 }}>
-              {filteredProducts.map((p) => (
-                <TouchableOpacity
-                  key={p._id}
-                  style={[
-                    styles.selectItem,
-                    selectedProductId === p._id && styles.selectItemActive,
-                  ]}
-                  onPress={() => setSelectedProductId(p._id)}
-                >
-                  <Text
-                    style={[
-                      styles.selectItemText,
-                      selectedProductId === p._id &&
-                        styles.selectItemTextActive,
-                    ]}
-                  >
-                    {p.name} — {p.model}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TextInput
-              style={[styles.input, { marginTop: 12 }]}
-              placeholder={t("common.quantity")}
-              placeholderTextColor="#999"
-              value={quantity}
-              onChangeText={setQuantity}
-              keyboardType="numeric"
-            />
-            <TouchableOpacity style={styles.button} onPress={handleAddProduct}>
-              <Text style={styles.buttonText}>{t("common.add")}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setAddProductModal(false)}
-            >
-              <Text style={styles.cancelText}>{t("common.cancel")}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </ScrollView>
-  );
-}
-
-export default function Stores() {
-  const [stores, setStores] = useState([]);
+export default function StoreDetail() {
+  const [outlets, setOutlets] = useState([]);
+  const [type, setType] = useState("store");
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [name, setName] = useState("");
-  const [currentPage, setCurrentPage] = useState(0);
-  // const { isOwner, role } = useRole();
-  const pagerRef = useRef(null);
   // worker permissions
   const { isOwner, role } = useRole();
   const isWorker = role === "worker";
   const isUser = role === "user";
 
+  const [successModal, setSuccessModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  const [totalLowStock, setTotalLowStock] = useState(0);
+
   const { t } = useTranslation();
 
-  const fetchStores = async () => {
+  const fetchOutlets = async (outletType) => {
     try {
       setLoading(true);
-      // In fetchStores:
+
       if (isWorker) {
-        const data = await get("/stores/my-store").catch(() => null);
-        const store = data?.data?.store;
-        if (store) setStores([store]);
+        const data = await getCached("/outlets/my-outlet");
+        const workerOutlet = data?.data?.outlet;
+        setOutlets(workerOutlet ? [workerOutlet] : []);
         return;
       }
 
-      const data = await get("/stores");
-      setStores(data?.data?.stores);
+      const data = await getCached(`/outlets?type=${outletType}`);
+      const outletList = data.data?.outlets || [];
+      setOutlets(outletList);
+
+      const counts = await Promise.all(
+        outletList.map((outlet) =>
+          get(`/outlets/${outlet._id}/low-stock?threshold=5`)
+            .then((res) => res.data?.results || 0)
+            .catch(() => 0),
+        ),
+      );
+      setTotalLowStock(counts.reduce((sum, c) => sum + c, 0));
     } catch (err) {
-      setStores([]);
+      setOutlets([]);
     } finally {
       setLoading(false);
     }
@@ -433,139 +68,137 @@ export default function Stores() {
   useFocusEffect(
     useCallback(() => {
       if (role === null) return;
-      fetchStores();
-    }, []),
+      fetchOutlets(type);
+    }, [type, role]),
   );
 
   const handleCreateStore = async () => {
     if (!name) {
-      Alert.alert(t("common.errorTitle"), t("stores.invalidName"));
+      setErrorMessage(t("stores.invalidName"));
       return;
     }
     try {
-      await post("/stores", { name });
+      await post("/outlets", { name, type });
+      invalidateCache(`/outlets?type=${type}`);
       setModalVisible(false);
       setName("");
-      fetchStores();
+      setSuccessModal(true);
+      fetchOutlets(type);
     } catch (err) {
-      Alert.alert("Error", err.message);
+      setErrorMessage(err.message);
     }
   };
-
-  const handleDeleteStore = (id, storeName) => {
-    Alert.alert(
-      t("stores.deleteStore"),
-      t("stores.deleteStoreConfirm", { name: storeName }),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t("common.delete"),
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await del(`/stores/${id}`);
-              pagerRef.current?.setPage(0);
-              setCurrentPage(0);
-              fetchStores();
-            } catch (err) {
-              Alert.alert(t("stores.error"), err.message);
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          {stores[currentPage]?.name || "Stores"}
-        </Text>
-        {(isOwner || isUser) && (
-          <View style={{ flexDirection: "row", gap: 8 }}>
+        <Text style={styles.headerTitle}>{t("stores.title")}</Text>
+        <View style={{ flexDirection: "row", gap: 16 }}>
+          {!isUser && (
+            <View style={{ flexDirection: "row", gap: 16 }}>
+              <TouchableOpacity
+                style={{ position: "relative" }}
+                onPress={() => router.push("/outlets/restock")}
+              >
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={24}
+                  color={Colors.warning}
+                />
+                {totalLowStock > 0 && <View style={styles.redDot} />}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push("/outlets/worker")}>
+                <Ionicons name="stats-chart" size={24} color={Colors.primary} />
+              </TouchableOpacity>
+            </View>
+          )}
+          {(isOwner || isUser) && (
             <TouchableOpacity
               style={styles.addButton}
               onPress={() => setModalVisible(true)}
             >
-              <Text style={styles.addButtonText}>+ {t("common.add")}</Text>
+              <MaterialCommunityIcons
+                name="store-plus-outline"
+                size={28}
+                color={Colors.primary}
+              />
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.addButton, { backgroundColor: Colors.error }]}
-              onPress={() => {
-                const current = stores[currentPage];
-                if (current) handleDeleteStore(current._id, current.name);
-              }}
-            >
-              <Text style={[styles.addButtonText]}>{t("common.delete")}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          )}
+        </View>
       </View>
 
-      {/* Store Name Tabs */}
-      {stores.length > 1 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.tabs}
-          contentContainerStyle={styles.tabsContent}
-        >
-          {stores.map((store, i) => (
-            <TouchableOpacity
-              key={store._id}
-              style={[styles.tab, i === currentPage && styles.tabActive]}
-              onPress={() => pagerRef.current?.setPage(i)}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  i === currentPage && styles.tabTextActive,
-                ]}
-              >
-                {store.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* Pager */}
-      {stores.length === 0 ? (
-        <Text style={styles.empty}>
-          {isOwner || isUser
-            ? `${t("stores.noStores")}. ${t("products.addOne")}`
-            : t("workers.notAttachedToStore")}
-        </Text>
+      {!isWorker ? (
+        <View style={styles.section}>
+          <Dropdown
+            options={[
+              { label: t("stores.store"), value: "store" },
+              { label: t("warehouse.warehouse"), value: "warehouse" },
+            ]}
+            selected={type}
+            onSelect={setType}
+            placeholder={t("common.selectType")}
+            selector={styles.selector}
+          />
+        </View>
       ) : (
-        <PagerView
-          ref={pagerRef}
-          style={{ flex: 1 }}
-          initialPage={0}
-          onPageSelected={(e) => setCurrentPage(e.nativeEvent.position)}
-        >
-          {stores.map((store) => (
-            <View key={store._id}>
-              <StorePage
-                store={store}
-                isOwner={isOwner}
-                onDelete={handleDeleteStore}
-              />
-            </View>
-          ))}
-        </PagerView>
+        <View style={{height: 20}}></View>
+      )}
+      
+      {loading ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+          <SkeletonList count={5} type="outlet" />
+        </View>
+      ) : (
+        <FlatList
+          data={outlets}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={styles.section}
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              {isOwner || isUser
+                ? `${t("stores.noStores")}. ${t("products.addOne")}`
+                : t("workers.notAttachedToStore")}
+            </Text>
+          }
+          renderItem={({ item: outlet }) => (
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() => router.push(`/outlets/${outlet._id}`)}
+            >
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{outlet.name}</Text>
+              </View>
+              <View style={styles.storeInfo}>
+                <View style={{ flexDirection: "column", alignItems: "center" }}>
+                  <Feather
+                    name="users"
+                    size={24}
+                    color={Colors.primary}
+                    style={{ paddingHorizontal: 18 }}
+                  />
+                  <Text style={styles.storeStats}>
+                    {outlet.workers?.length || 0} {t("workers.title")}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "column", alignItems: "center" }}>
+                  <Feather
+                    name="box"
+                    size={24}
+                    color={Colors.primary}
+                    style={{ paddingHorizontal: 22 }}
+                  />
+                  <Text style={styles.storeStats}>
+                    {outlet.productsCount || 0} {t("products.title")}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          )}
+        />
       )}
 
-      {/* Create Store Modal */}
+      {/* Modals unchanged */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
@@ -589,13 +222,54 @@ export default function Stores() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={successModal} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons
+              name="checkmark-circle"
+              size={48}
+              color={Colors.success}
+            />
+            <Text style={styles.centeredTitle}>{t("common.success")}</Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                style={[
+                  styles.centeredBtn,
+                  { backgroundColor: Colors.success },
+                ]}
+                onPress={() => setSuccessModal(false)}
+              >
+                <Text style={styles.centeredBtnText}>{t("common.ok")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!errorMessage} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="close-circle" size={48} color={Colors.error} />
+            <Text style={styles.centeredTitle}>{t("common.errorTitle")}</Text>
+            <Text style={styles.centeredSubtitle}>{errorMessage}</Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                style={styles.centeredBtn}
+                onPress={() => setErrorMessage(null)}
+              >
+                <Text style={styles.centeredBtnText}>{t("common.ok")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  loader: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -607,13 +281,18 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.border,
   },
   headerTitle: { fontSize: 24, fontWeight: "bold", color: Colors.text },
-  addButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
   addButtonText: { color: Colors.white, fontWeight: "600" },
+  selector: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+  },
   tabs: {
     backgroundColor: Colors.white,
     borderBottomWidth: 1,
@@ -663,7 +342,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   editText: { color: Colors.primary, fontSize: 16, fontWeight: "600" },
-  storeStats: { flexDirection: "row", alignItems: "center" },
+  storeStats: { textTransform: "lowercase", color: Colors.text, fontSize: 16 },
   statItem: { alignItems: "center", flex: 1 },
   statValue: { fontSize: 20, fontWeight: "bold", color: Colors.primary },
   statLabel: { fontSize: 12, color: Colors.textLight, marginTop: 2 },
@@ -797,4 +476,74 @@ const styles = StyleSheet.create({
   },
   selectItemText: { color: Colors.text, fontSize: 14 },
   selectItemTextActive: { color: Colors.white },
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 12,
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.text,
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    color: Colors.textLight,
+    marginTop: 2,
+  },
+  cardActions: {
+    flexDirection: "row",
+    gap: 7,
+  },
+  storeInfo: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+    padding: 12,
+  },
+  centeredOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 15,
+  },
+  centeredModal: {
+    width: "100%",
+    alignItems: "center",
+    backgroundColor: Colors.white,
+    padding: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  centeredTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.text,
+  },
+  centeredSubtitle: {
+    fontSize: 17,
+    color: Colors.text,
+  },
+  centeredBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.error,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  centeredBtnText: {
+    color: Colors.white,
+  },
 });

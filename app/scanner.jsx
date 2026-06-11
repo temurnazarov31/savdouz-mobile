@@ -1,8 +1,10 @@
+import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Colors from "../constants/colors";
 import { post } from "../services/api";
 
@@ -10,6 +12,9 @@ export default function Scanner() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [successModal, setSuccessModal] = useState(false);
+  const [errorModal, setErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
   const { t } = useTranslation();
 
   const handleBarCodeScanned = async ({ data }) => {
@@ -19,24 +24,11 @@ export default function Scanner() {
 
     try {
       const token = data.includes("/join/") ? data.split("/join/")[1] : data;
-      const isWarehouse = data.includes("/warehouses/");
-
-      const endpoint = isWarehouse
-        ? `/warehouses/join/${token}`
-        : `/stores/join/${token}`;
-
-      await post(endpoint);
-
-      Alert.alert(
-        `${t("common.success")}! 🎉 `,
-        `${t("workers.joinRequestSent")} ${t("workers.waitingApproval")}`,
-        [{ text: "OK", onPress: () => router.back() }],
-      );
+      await post(`/outlets/join/${token}`);
+      setSuccessModal(true);
     } catch (err) {
-      Alert.alert(t("common.errorTitle"), err.message, [
-        { text: t("scanner.tryAgain"), onPress: () => setScanned(false) },
-        { text: t("common.cancel"), onPress: () => router.back() },
-      ]);
+      setErrorMessage(err.message);
+      setErrorModal(true);
     } finally {
       setLoading(false);
     }
@@ -48,9 +40,26 @@ export default function Scanner() {
 
   if (!permission.granted) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.message}>{t("scanner.cameraPermission")}</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
+      <View
+        style={[
+          styles.container,
+          { justifyContent: "center", alignItems: "center", padding: 24 },
+        ]}
+      >
+        <Ionicons name="camera-outline" size={64} color={Colors.primary} />
+        <Text style={[styles.message, { marginBottom: 16 }]}>
+          {t("scanner.cameraPermission")}
+        </Text>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={async () => {
+            const { granted } = await requestPermission();
+            if (!granted) {
+              // Permission denied — open app settings
+              Linking.openSettings();
+            }
+          }}
+        >
           <Text style={styles.buttonText}>{t("scanner.grantPermission")}</Text>
         </TouchableOpacity>
       </View>
@@ -62,7 +71,11 @@ export default function Scanner() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>← {t("common.back")}</Text>
+          <Ionicons
+            name="arrow-back-outline"
+            size={24}
+            color={Colors.primary}
+          />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t("scanner.scanQR")}</Text>
         <View />
@@ -103,6 +116,79 @@ export default function Scanner() {
           <Text style={styles.rescanText}>{t("scanner.tapScan")}</Text>
         </TouchableOpacity>
       )}
+      {/* Success Modal */}
+      <Modal visible={successModal} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons
+              name="checkmark-circle"
+              size={48}
+              color={Colors.success}
+            />
+            <Text style={styles.centeredTitle}>{t("common.success")}</Text>
+            <Text style={styles.centeredSubtitle}>
+              {t("workers.joinedSuccessfully")}
+            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <TouchableOpacity
+                style={[
+                  styles.centeredBtn,
+                  { backgroundColor: Colors.success },
+                ]}
+                onPress={() => {
+                  setSuccessModal(false);
+                  router.back();
+                }}
+              >
+                <Text style={styles.centeredBtnText}>{t("common.ok")}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Error Modal */}
+      <Modal visible={errorModal} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="close-circle" size={48} color={Colors.error} />
+            <Text style={styles.centeredTitle}>{t("common.errorTitle")}</Text>
+            <Text style={styles.centeredSubtitle}>{errorMessage}</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <TouchableOpacity
+                style={[styles.centeredBtn, { backgroundColor: "transparent" }]}
+                onPress={() => {
+                  setErrorModal(false);
+                  router.back();
+                }}
+              >
+                <Text
+                  style={[styles.centeredBtnText, { color: Colors.textLight }]}
+                >
+                  {t("common.cancel")}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.centeredBtn}
+                onPress={() => {
+                  setErrorModal(false);
+                  setScanned(false);
+                }}
+              >
+                <Text style={styles.centeredBtnText}>
+                  {t("scanner.tryAgain")}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -191,4 +277,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   buttonText: { color: Colors.white, fontWeight: "600", fontSize: 16 },
+  centeredOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 15,
+  },
+  centeredModal: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    padding: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  centeredTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.text,
+  },
+  centeredSubtitle: {
+    fontSize: 17,
+    color: Colors.text,
+  },
+  centeredBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.error,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  centeredBtnText: {
+    color: Colors.white,
+  },
 });

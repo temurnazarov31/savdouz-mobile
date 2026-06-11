@@ -8,34 +8,43 @@ const useAuthStore = create((set) => ({
   isLoading: false,
   error: null,
 
-  login: async (emailOrPhone, password) => {
-    set({ isLoading: true, error: null });
-    try {
-      // Detect if input is phone or email
-      const isPhone =
-        emailOrPhone.startsWith("+") || /^\d+$/.test(emailOrPhone);
+  login: async (loginInput, password) => {
+  set({ isLoading: true, error: null });
+  try {
+    const isPhone = loginInput.startsWith("+") || /^\d+$/.test(loginInput);
+    const isEmail = loginInput.includes("@");
 
-      const data = await post("/users/login", {
-        [isPhone ? "phone" : "email"]: emailOrPhone,
-        password,
-      });
+    const data = await post("/users/login", {
+      [isPhone ? "phone" : isEmail ? "email" : "username"]: loginInput,
+      password,
+    });
 
-      await SecureStore.setItemAsync("token", data.token);
-      await SecureStore.setItemAsync("user", JSON.stringify(data.data?.user));
-      await SecureStore.setItemAsync("role", data.data?.user?.role || "user");
-      set({ user: data.data?.user, token: data.token, isLoading: false });
-      return true;
-    } catch (err) {
-      set({ error: err.message || "Login failed", isLoading: false });
-      return false;
-    }
-  },
+    await SecureStore.setItemAsync("token", data.token);
+    await SecureStore.setItemAsync("user", JSON.stringify(data.data?.user));
+    await SecureStore.setItemAsync("role", data.data?.user?.role || "user");
+    set({ user: data.data?.user, token: data.token, isLoading: false });
+    return true;
+  } catch (err) {
+    set({ error: err.message || "Login failed", isLoading: false });
+    return false;
+  }
+},
 
-  signup: async (name, email, phone, password, passwordConfirm) => {
+  signup: async (
+    username,
+    name,
+    surname,
+    email,
+    phone,
+    password,
+    passwordConfirm,
+  ) => {
     set({ isLoading: true, error: null });
     try {
       const data = await post("/users/signup", {
+        username,
         name,
+        surname,
         email,
         phone,
         password,
@@ -81,6 +90,6 @@ const useAuthStore = create((set) => ({
       set({ user: null, token: null, isLoading: false });
     }
   },
-}))
+}));
 
 export default useAuthStore;

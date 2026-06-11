@@ -1,8 +1,8 @@
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Alert,
   Modal,
   StyleSheet,
   Text,
@@ -23,10 +23,10 @@ export default function ProductScanner({
   const [scannedProduct, setScannedProduct] = useState(null);
   const [quantity, setQuantity] = useState("1");
   const [modalVisible, setModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
   const { t } = useTranslation();
 
   const handleBarCodeScanned = ({ data }) => {
-
     if (scanned) return;
     setScanned(true);
 
@@ -39,12 +39,9 @@ export default function ProductScanner({
         p.barcode === data || // ← add this
         p.product?.barcode === data, // ← and this
     );
-    
+
     if (!product) {
-      Alert.alert(t("common.notFound"), t("products.productNotFound"), [
-        { text: t("common.close"), onPress: onClose },
-        { text: t("scanner.scanAgain"), onPress: () => setScanned(false) },
-      ]);
+      setErrorMessage(t("products.productNotFound"));
       return;
     }
 
@@ -57,7 +54,7 @@ export default function ProductScanner({
     if (!scannedProduct) return;
     const qty = Number(quantity);
     if (!qty || qty < 1) {
-      Alert.alert("Error", t("transactions.validQuantity"));
+      setErrorMessage(t("transactions.validQuantity"));
       return;
     }
     onAddToCart({ ...scannedProduct, quantity: qty });
@@ -92,7 +89,7 @@ export default function ProductScanner({
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{t("scanner.productTitle")}</Text>
         <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-          <Text style={styles.closeBtnText}>✕ {t("common.back")}</Text>
+          <Feather name="x" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
@@ -138,11 +135,11 @@ export default function ProductScanner({
             <View style={styles.priceToggle}>
               <Text style={styles.toggleTxt}>
                 {t("transactions.bulk")}:{" "}
-                {scannedProduct?.pricing?.bulkPrice?.toLocaleString()} UZS
+                {scannedProduct?.pricing?.wholesalePrice?.toLocaleString()}
               </Text>
               <Text style={styles.toggleTxt}>
                 {t("transactions.retail")}:{" "}
-                {scannedProduct?.pricing?.retailPrice?.toLocaleString()} UZS
+                {scannedProduct?.pricing?.retailPrice?.toLocaleString()}
               </Text>
             </View>
 
@@ -174,14 +171,14 @@ export default function ProductScanner({
             <Text style={styles.total}>
               {t("transactions.bulk")} -{" "}
               {(
-                scannedProduct?.pricing?.bulkPrice * Number(quantity)
+                scannedProduct?.pricing?.wholesalePrice * Number(quantity)
               )?.toLocaleString()}{" "}
-              UZS{"     "}
+             {"     "}
               {t("transactions.retail")} -{" "}
               {(
                 scannedProduct?.pricing?.retailPrice * Number(quantity)
               )?.toLocaleString()}{" "}
-              UZS
+             
             </Text>
 
             {/* Actions */}
@@ -196,7 +193,54 @@ export default function ProductScanner({
                 style={styles.approveButton}
                 onPress={handleApprove}
               >
-                <Text style={styles.approveText}>✓ {t("scanner.addCart")}</Text>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <Ionicons name="checkmark" size={16} color={Colors.white} />
+                  <Text style={styles.approveText}>{t("scanner.addCart")}</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Error Modal */}
+      <Modal visible={!!errorMessage} transparent animationType="fade">
+        <View style={styles.centeredOverlay}>
+          <View style={styles.centeredModal}>
+            <Ionicons name="close-circle" size={48} color={Colors.error} />
+            <Text style={styles.centeredTitle}>{t("common.errorTitle")}</Text>
+            <Text style={styles.centeredSubtitle}>{errorMessage}</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <TouchableOpacity
+                style={[styles.centeredBtn, { backgroundColor: "transparent" }]}
+                onPress={() => {
+                  setErrorMessage(null);
+                  onClose();
+                }}
+              >
+                <Text
+                  style={[styles.centeredBtnText, { color: Colors.textLight }]}
+                >
+                  {t("common.close")}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.centeredBtn}
+                onPress={() => {
+                  setErrorMessage(null);
+                  setScanned(false);
+                }}
+              >
+                <Text style={styles.centeredBtnText}>
+                  {t("scanner.scanAgain")}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -207,7 +251,7 @@ export default function ProductScanner({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
+  container: { flex: 1, backgroundColor: "#000", justifyContent: 'center' },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -366,4 +410,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   approveText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  centeredOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 15,
+  },
+  centeredModal: {
+    width: "100%",
+    backgroundColor: Colors.white,
+    padding: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  centeredTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.text,
+  },
+  centeredSubtitle: {
+    fontSize: 17,
+    color: Colors.text,
+  },
+  centeredBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.error,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  centeredBtnText: {
+    color: Colors.white,
+  },
 });
